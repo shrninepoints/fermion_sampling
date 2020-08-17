@@ -1,0 +1,1 @@
+The text summary training data is from https://github.com/JafferWilson/Process-Data-of-CNN-DailyMail
