@@ -4,11 +4,11 @@ import os
 import gensim
 
 VEC_PATH = "/Users/macbookpro/projects/FermionSampling/train_vec"
-L_PATH = "/Users/macbookpro/projects/FermionSampling/train_l"
-TEST_PATH = "/Users/macbookpro/projects/FermionSampling/test_data"
+#L_PATH = "/Users/macbookpro/projects/FermionSampling/train_l"
+#TEST_PATH = "/Users/macbookpro/projects/FermionSampling/test_data"
 model = gensim.models.doc2vec.Doc2Vec(vector_size=50, min_count=2, epochs=20) # Doc2Vec model
 d = 10 # dimension of feature vector
-theta = np.array([0.00030181 ,-0.02927969  ,0.02378645 ,-0.01102074 ,-0.00431801 ,-0.00295598,0.00050187  ,0.00323944 , 0.00947083  ,0.01119595])
+theta = np.array([0.00096383 ,-0.01216535 , 0.01574886 ,-0.00411098 ,-0.00392975, -0.00080255,0.01070928 , 0.00381164 , 0.01000864, -0.00190676])
 
 def sampleL(e,v,method): # sample with input L
     def m2x(result):
@@ -122,29 +122,29 @@ def thetaTrain(theta):
             grad = np.sum(feature[o],0) - Kii.dot(feature)
             sum_grad = sum_grad + grad
         return sum_grad
-    step = 1/1000000
+    step = 1/10000000
     for i in range(1000):
         grad = gradLiklihood(oracleSummary(ts_list),theta)
         theta = theta + step * grad
         print("theta = ",theta)
     return theta
 
-def selectionMBR(sample_num,text,summary_sentence_num):
+def selectionMBR(sample_num,text,min_length,max_length):
     summary_list = []
     L = generateL(text,theta)
     e,v = np.linalg.eig(L)
-    e = e
     for i in range(sample_num):
         result = sampleL(e,v,"sampling")
-        print(result)
-        summary = [text[i] for i in result]
-        summary = ''.join(summary)
-        summary_list.append(summary)
-    print(summary_list)
+        result.sort()
+        if len(result) > min_length and len(result) < max_length:
+            print(result)
+            summary = [text[i] for i in result]
+            summary = ''.join(summary)
+            summary_list.append(summary)
     summary_list_vec = [vector(summary) for summary in summary_list]
     similarity_list = []
-    for i in range(sample_num):
-        similarity = np.sum([cosine(summary_list_vec[i],summary_list_vec[j]) for j in range(sample_num)])
+    for i in range(len(summary_list)):
+        similarity = np.sum([cosine(summary_list_vec[i],summary_list_vec[j]) for j in range(len(summary_list))])
         similarity_list.append(similarity)
     selection = np.argmin(similarity_list)
     return summary_list[selection]
@@ -153,11 +153,11 @@ if __name__ == "__main__":
     vecTrain()
     ts_list = readMultipleData(VEC_PATH,5)
     text,_ = ts_list[0]
-    print(selectionMBR(5,text,3))
+    print(selectionMBR(100,text,2,6))
     '''
     theta_init = theta
-    print(thetaTrain(theta))
-    print(theta_init)
+    print("new theta = ",thetaTrain(theta))
+    print("previous_theta =",theta_init)
     
     L = generateL(text,theta)
     e, v = np.linalg.eig(L)
