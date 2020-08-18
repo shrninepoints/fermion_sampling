@@ -21,20 +21,30 @@ def sampling2(U,N,L):  # sampling without O(n^2) update method
             submat = U[np.ix_(x+[j],v[0:i+1])]
             p[j] = np.square(np.abs(np.linalg.det(submat)))   # P(x_k = j) 
         prob = p / sum(p) 
-        print('xlst = ', x)
         psum = np.zeros(L//l)
         for k in range(L//l):
             position = k * l
             psum[k] = np.sum(prob[position:(position+l)])
         print('psum = ', psum)
-        print('expt = ', local_expectation(U[:,v[0:i+1]].T,i+1,L,l) / (i+1))
+        expt = local_expectation(U[:,v[0:i+1]].T,i+1,L,l) / (i+1)
+        print('expt = ', expt)
+        result = [1 if i in x else 0 for i in range(L)]
+        local_number = np.zeros(L//l)
+        for i in range(L//l):
+            position = i * l
+            local_number[i] = np.sum(result[position:(position+l)])
+        print("lnum = ",local_number)
+        reduced_expt = expt - local_number / (i+1) / 16
+        reduced_expt = reduced_expt / np.sum(reduced_expt)
+        print("rept = ", reduced_expt)
         x.append(np.random.choice(L,p = prob))          # choose position wrt p  
     m = [1 if i in x else 0 for i in range(L)]          # generate m vector with x
+
     return np.array(m)
 
 if __name__ == "__main__":
     loop = 1    # number of samples
-    N = 4         # num of particle
+    N = 16         # num of particle
     L = 256        # length of the system
     U = unitary_group.rvs(L)
     U = U[0:N]

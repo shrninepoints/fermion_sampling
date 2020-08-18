@@ -1,2 +1,6 @@
 cnn_stories_tokenized/
-.DS_Store 
+.DS_Store
+test_data/
+train_l/
+train_vec/ 
+__pycache__/
