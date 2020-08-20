@@ -2,13 +2,25 @@ import fermion_sampling as fs
 import numpy as np
 import os
 import gensim
+import time
 
 VEC_PATH = "/Users/macbookpro/projects/FermionSampling/train_vec"
 #L_PATH = "/Users/macbookpro/projects/FermionSampling/train_l"
 #TEST_PATH = "/Users/macbookpro/projects/FermionSampling/test_data"
 model = gensim.models.doc2vec.Doc2Vec(vector_size=50, min_count=2, epochs=20) # Doc2Vec model
 d = 10 # dimension of feature vector
+method = "dpp"
 theta = np.array([0.00096383 ,-0.01216535 , 0.01574886 ,-0.00411098 ,-0.00392975, -0.00080255,0.01070928 , 0.00381164 , 0.01000864, -0.00190676])
+
+def timeit(f):
+    def timed(*args, **kw):
+        ts = time.time()
+        result = f(*args, **kw)
+        te = time.time()
+        print('func:%r args:[%r, %r] took: %2.4f sec' % \
+          (f.__name__, args[0:1], kw, te-ts))
+        return result
+    return timed
 
 def sampleL(e,v,method): # sample with input L
     def m2x(result):
@@ -24,11 +36,14 @@ def sampleL(e,v,method): # sample with input L
             removal.append(i)
     v = np.delete(v,removal,1)
     number = v.shape[1]
-    if method == 'dpp':    
-        result = fs.dpp(v,number,size)
-    elif method == 'sampling':
-        result = fs.sampling(v,number,size)
-    result = m2x(result)
+    try:
+        if method == 'dpp':    
+            result = fs.dpp(np.dot(v,v.T.conj()),number,size)
+        elif method == 'sampling':
+            result = fs.sampling(v,number,size)
+        result = m2x(result)
+    except ValueError:
+        result = None
     return result # result gives a list of the index of sentence selected
 
 def cosine(a,b): # cosine similarity between two vectors
@@ -43,7 +58,9 @@ def readMultipleData(folder_path,num):
             text = lines[0:sep]
             summary = [lines[sep+2*i+1] for i in range((len(lines) - sep) // 2)]
         return text,summary
-    file_paths = os.listdir(folder_path)[0:num]
+    file_paths = os.listdir(folder_path)
+    file_paths.sort()
+    file_paths = file_paths[0:num]
     ts_list = [readData(folder_path + "/" + path) for path in file_paths]
     return ts_list
 
@@ -122,38 +139,47 @@ def thetaTrain(theta):
             grad = np.sum(feature[o],0) - Kii.dot(feature)
             sum_grad = sum_grad + grad
         return sum_grad
-    step = 1/10000000
+    step = 1/10000
+    to_list = oracleSummary(ts_list)
     for i in range(1000):
-        grad = gradLiklihood(oracleSummary(ts_list),theta)
+        grad = gradLiklihood(to_list,theta)
         theta = theta + step * grad
         print("theta = ",theta)
     return theta
 
+@timeit
 def selectionMBR(sample_num,text,min_length,max_length):
     summary_list = []
     L = generateL(text,theta)
     e,v = np.linalg.eig(L)
-    for i in range(sample_num):
-        result = sampleL(e,v,"sampling")
-        result.sort()
-        if len(result) > min_length and len(result) < max_length:
-            print(result)
+    print("article length = ", len(e))
+    samples = 0
+    output_length = 0
+    while samples < sample_num:
+        result = sampleL(e,v,method) # result could be none or a result
+        if result and len(result) > min_length and len(result) < max_length: # remove results that are None and too long/short
+            output_length = output_length + len(result)
+            result.sort()
+            #print(result)
             summary = [text[i] for i in result]
             summary = ''.join(summary)
             summary_list.append(summary)
+            samples = samples + 1
+    output_length = output_length / sample_num
     summary_list_vec = [vector(summary) for summary in summary_list]
     similarity_list = []
     for i in range(len(summary_list)):
         similarity = np.sum([cosine(summary_list_vec[i],summary_list_vec[j]) for j in range(len(summary_list))])
         similarity_list.append(similarity)
     selection = np.argmin(similarity_list)
+    print("output length = ",output_length)
     return summary_list[selection]
 
 if __name__ == "__main__":
     vecTrain()
-    ts_list = readMultipleData(VEC_PATH,5)
+    ts_list = readMultipleData(VEC_PATH,10)
     text,_ = ts_list[0]
-    print(selectionMBR(100,text,2,6))
+    print(selectionMBR(100,text,2,8))
     '''
     theta_init = theta
     print("new theta = ",thetaTrain(theta))
@@ -163,6 +189,5 @@ if __name__ == "__main__":
     e, v = np.linalg.eig(L)
     print(e)
     print(sampleL(e,v,"sampling"))
-    #print(vector("Some scoff at the notion that movies do anything more than entertain . They are wrong . Sure , it 's unlikely that one movie alone will change your views on issues of magnitude . But a movie -LRB- or TV show -RRB- can begin your `` education '' or `` miseducation '' on a topic . And for those already agreeing with the film 's thesis , it can further entrench your views ."))
     #print(readData("/Users/macbookpro/projects/FermionSampling/cnn_stories_tokenized/0a0a4c90d59df9e36ffec4ba306b4f20f3ba4acb.story"))
     '''

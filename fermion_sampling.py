@@ -210,7 +210,7 @@ def sample_state(loop,method,U,N,L):
     return count
 
 if __name__ == "__main__":
-    loop = 1    # number of samples
+    loop = 10000    # number of samples
     N = 4         # num of particle
     L = 16        # length of the system
     U = unitary_group.rvs(L)
@@ -228,7 +228,6 @@ if __name__ == "__main__":
     '''
     print(U)
     
-    sample_position(loop,"dpp",U,N,L)
     sample_position(loop,"sampling2",U,N,L)
     sample_position(loop,"sampling",U,N,L)
     '''
