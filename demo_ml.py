@@ -5,11 +5,13 @@ import gensim
 import time
 
 VEC_PATH = "/Users/macbookpro/projects/FermionSampling/train_vec"
-#L_PATH = "/Users/macbookpro/projects/FermionSampling/train_l"
-#TEST_PATH = "/Users/macbookpro/projects/FermionSampling/test_data"
+L_PATH = "/Users/macbookpro/projects/FermionSampling/train_l"
+TEST_PATH = "/Users/macbookpro/projects/FermionSampling/test_data"
 model = gensim.models.doc2vec.Doc2Vec(vector_size=50, min_count=2, epochs=20) # Doc2Vec model
 d = 10 # dimension of feature vector
 method = "dpp"
+article_length = 60
+sample_num = 100
 theta = np.array([0.00096383 ,-0.01216535 , 0.01574886 ,-0.00411098 ,-0.00392975, -0.00080255,0.01070928 , 0.00381164 , 0.01000864, -0.00190676])
 
 def timeit(f):
@@ -57,13 +59,22 @@ def readMultipleData(folder_path,num):
             sep = lines.index('@highlight\n')
             text = lines[0:sep]
             summary = [lines[sep+2*i+1] for i in range((len(lines) - sep) // 2)]
-        return text,summary
+        return text,summary       
     file_paths = os.listdir(folder_path)
-    file_paths.sort()
+    #file_paths.sort()
     file_paths = file_paths[0:num]
     ts_list = [readData(folder_path + "/" + path) for path in file_paths]
     return ts_list
 
+def readRandomData(path):
+    with open(path) as t:
+        lines = t.readlines()
+        text = lines[0].split(". ")
+        text = [sentence + "\n" for sentence in text]
+        text = text[0:article_length]
+        summary = []
+    return text,summary
+    
 def vecTrain():
     ts_list = readMultipleData(VEC_PATH,100)
     train_list = [t for (t,s) in ts_list]
@@ -153,6 +164,7 @@ def selectionMBR(sample_num,text,min_length,max_length):
     L = generateL(text,theta)
     e,v = np.linalg.eig(L)
     print("article length = ", len(e))
+    print(method)
     samples = 0
     output_length = 0
     while samples < sample_num:
@@ -177,9 +189,9 @@ def selectionMBR(sample_num,text,min_length,max_length):
 
 if __name__ == "__main__":
     vecTrain()
-    ts_list = readMultipleData(VEC_PATH,10)
-    text,_ = ts_list[0]
-    print(selectionMBR(100,text,2,8))
+    #ts_list = readMultipleData(VEC_PATH,1)
+    text,_ = readRandomData("/Users/macbookpro/projects/FermionSampling/test_data/00000test.story")
+    print(selectionMBR(sample_num,text,0,200))
     '''
     theta_init = theta
     print("new theta = ",thetaTrain(theta))
@@ -189,5 +201,4 @@ if __name__ == "__main__":
     e, v = np.linalg.eig(L)
     print(e)
     print(sampleL(e,v,"sampling"))
-    #print(readData("/Users/macbookpro/projects/FermionSampling/cnn_stories_tokenized/0a0a4c90d59df9e36ffec4ba306b4f20f3ba4acb.story"))
     '''
