@@ -4,3 +4,5 @@ test_data/
 train_l/
 train_vec/ 
 __pycache__/
+ED/
+*.ipynb

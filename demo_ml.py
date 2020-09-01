@@ -9,9 +9,9 @@ L_PATH = "/Users/macbookpro/projects/FermionSampling/train_l"
 TEST_PATH = "/Users/macbookpro/projects/FermionSampling/test_data"
 model = gensim.models.doc2vec.Doc2Vec(vector_size=50, min_count=2, epochs=20) # Doc2Vec model
 d = 10 # dimension of feature vector
-method = "dpp"
-article_length = 60
-sample_num = 100
+method = "sampling" # sampling or dpp
+article_length = 60 # first n lines of the article are taken into account, used only for testing
+sample_num = 100    # number of samples, the higher the better
 theta = np.array([0.00096383 ,-0.01216535 , 0.01574886 ,-0.00411098 ,-0.00392975, -0.00080255,0.01070928 , 0.00381164 , 0.01000864, -0.00190676])
 
 def timeit(f):
@@ -51,6 +51,9 @@ def sampleL(e,v,method): # sample with input L
 def cosine(a,b): # cosine similarity between two vectors
     return np.dot(a, b)/(np.linalg.norm(a)*np.linalg.norm(b))
 
+def vector(sentence): # with a pre-trained model, vectorize a sentence
+    return model.infer_vector(gensim.utils.simple_preprocess(sentence))
+
 def readMultipleData(folder_path,num):
     def readData(path): # return list of strings in form of text-summary pair
         with open(path) as t:
@@ -86,18 +89,6 @@ def vecTrain():
     model.build_vocab(train_corpus)
     model.train(train_corpus, total_examples=model.corpus_count, epochs=model.epochs)
 
-def vector(sentence): # with a pre-trained model, vectorize a sentence
-    return model.infer_vector(gensim.utils.simple_preprocess(sentence))
-
-def matrixS(text_vec): # return S matrix for a text TODO: add hyperparameter to increase replusion
-    l = len(text_vec)
-    S = np.zeros((l,l))
-    for i in range(l):
-        for j in range(l):
-            S[i,j] = cosine(text_vec[i],text_vec[j])
-        S[i] = S[i] / np.linalg.norm(S[i])
-    return S
-
 def featureFunction(text): # return a d-dim vector for each sentence, in size*d matrix
     # TODO: add more features
     length = len(text)
@@ -108,13 +99,22 @@ def featureFunction(text): # return a d-dim vector for each sentence, in size*d 
     feature = np.array([const,len_list,len_list ** 2 / 100,len_list ** 3 / 10000,position_mark,position_mark ** 2,position_mark ** 3,pronouns_num,pronouns_num ** 2,pronouns_num ** 3]).T
     return feature
 
-def qualityVector(feature,theta): # return quality vector in 1*size
-    q = [np.dot(feature[i],theta) for i in range(len(feature))]
-    q = np.clip(q,-10,10)
-    q = np.exp(q)
-    return q
-
 def generateL(text,theta):
+    def qualityVector(feature,theta): # return quality vector in 1*size
+        q = [np.dot(feature[i],theta) for i in range(len(feature))]
+        q = np.clip(q,-10,10)
+        q = np.exp(q)
+        return q
+
+    def matrixS(text_vec): # return S matrix for a text TODO: add hyperparameter to increase replusion
+        l = len(text_vec)
+        S = np.zeros((l,l))
+        for i in range(l):
+            for j in range(l):
+                S[i,j] = cosine(text_vec[i],text_vec[j])
+            S[i] = S[i] / np.linalg.norm(S[i])
+        return S
+
     text_vec = [vector(line) for line in text]
     S = matrixS(text_vec)
     q = qualityVector(featureFunction(text),theta)
@@ -122,21 +122,21 @@ def generateL(text,theta):
     L = Q.dot(S).dot(Q)
     return L
 
-def oracleSummary(ts_list): # return the index of sentence in oracle summary (not summary itself)
-    o_list = []
-    for t,s in ts_list:
-        o = []
-        t_vec_list = [vector(sentence) for sentence in t]
-        s_vec_list = [vector(sentence) for sentence in s]
-        for s_vec in s_vec_list:
-            similarity = [cosine(t_vec,s_vec) for t_vec in t_vec_list]
-            o.append(np.argmin(similarity)) # TODO: remove repeat selected sentence
-        o_list.append(o)
-    t_list,_ = list(zip(*ts_list))
-    to_list = list(zip(t_list,o_list))
-    return to_list # list of (text, summary index) pairs
-
 def thetaTrain(theta):
+    def oracleSummary(ts_list): # return the index of sentence in oracle summary (not summary itself)
+        o_list = []
+        for t,s in ts_list:
+            o = []
+            t_vec_list = [vector(sentence) for sentence in t]
+            s_vec_list = [vector(sentence) for sentence in s]
+            for s_vec in s_vec_list:
+                similarity = [cosine(t_vec,s_vec) for t_vec in t_vec_list]
+                o.append(np.argmin(similarity)) # TODO: remove repeat selected sentence
+            o_list.append(o)
+        t_list,_ = list(zip(*ts_list))
+        to_list = list(zip(t_list,o_list))
+        return to_list # list of (text, summary index) pairs
+
     def gradLiklihood(to_list,theta):
         sum_grad = np.zeros(d)
         for t,o in to_list:
@@ -150,9 +150,10 @@ def thetaTrain(theta):
             grad = np.sum(feature[o],0) - Kii.dot(feature)
             sum_grad = sum_grad + grad
         return sum_grad
+
     step = 1/10000
     to_list = oracleSummary(ts_list)
-    for i in range(1000):
+    for _ in range(1000):
         grad = gradLiklihood(to_list,theta)
         theta = theta + step * grad
         print("theta = ",theta)
@@ -189,16 +190,11 @@ def selectionMBR(sample_num,text,min_length,max_length):
 
 if __name__ == "__main__":
     vecTrain()
-    #ts_list = readMultipleData(VEC_PATH,1)
+    ts_list = readMultipleData(VEC_PATH,1)
     text,_ = readRandomData("/Users/macbookpro/projects/FermionSampling/test_data/00000test.story")
     print(selectionMBR(sample_num,text,0,200))
     '''
     theta_init = theta
     print("new theta = ",thetaTrain(theta))
     print("previous_theta =",theta_init)
-    
-    L = generateL(text,theta)
-    e, v = np.linalg.eig(L)
-    print(e)
-    print(sampleL(e,v,"sampling"))
     '''
