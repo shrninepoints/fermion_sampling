@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import expm
-import random
 from State import *
 from copy import deepcopy
 '''
@@ -57,7 +56,7 @@ for ind_optim in range(M_optim):
     d = 0
     e_mul_d = 0
 
-    random.seed()
+    np.random.seed()
     for _ in range(Mtotal):
         # randomly choose a new configuration
         state_new = deepcopy(state)
