@@ -10,7 +10,7 @@ sites = L**2
 
 v = 1      # initial variational parameter
 epsilon = 0.1   # variational step length
-M_optim = 15    # num of variational steps
+M_optim = 12    # num of variational steps
 loop = 100
 
 E = np.zeros(M_optim)
@@ -101,7 +101,6 @@ for ind_optim in range(M_optim):
     if ind_optim > 5:
         var = np.var(E[ind_optim-5:ind_optim])
         print(var)
-        if var < 0.001: break
         loop = int(1 / var)+100
     samples = loop
     energy = d = e_mul_d = 0
@@ -125,7 +124,7 @@ for ind_optim in range(M_optim):
     V[ind_optim+1] = v
 
 print(E)
-print("Energy error = ", np.sqrt(np.var(E[5:])))
+print("Energy error = ", np.sqrt(np.var(E[-5:])))
 print(V)
 
 plt.figure()
