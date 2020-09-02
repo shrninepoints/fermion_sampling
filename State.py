@@ -1,5 +1,4 @@
 import numpy as np
-from copy import deepcopy
 
 class State:
     def __init__(self,*args): # initialize with (x_up,x_down) or x
@@ -9,8 +8,9 @@ class State:
             self.down = args[2]
         elif len(args) == 2:
             self.sites = args[0]
-            self.up = args[1][:self.sites]
-            self.down = args[1][self.sites:]
+            N = len(args[1]) // 2
+            self.up = args[1][:N]
+            self.down = args[1][N:] - self.sites
     
     def getUpNum(self):
         return len(self.up)
@@ -119,12 +119,7 @@ class State:
             self.up[index_change] = self.getEmptyUp()[index_new]
             K = self.up[index_change]
         else:
-            index_change = np.random.randint(self.getDownNum())
             index_new = np.random.randint(self.sites - self.getDownNum())
             self.down[index_change-self.getUpNum()] = self.getEmptyDown()[index_new]
-            K = self.down[index_change] + self.sites
+            K = self.down[index_change-self.getUpNum()] + self.sites
         return (K,index_change)
-
-    if __name__ == "__main__":
-        pass
-    pass
