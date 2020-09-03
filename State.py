@@ -28,6 +28,10 @@ class State:
         return np.delete(np.arange(self.sites), self.up)
     def getEmptyDown(self):
         return np.delete(np.arange(self.sites), self.down)
+    def getState(self):
+        m = [1 if i in self.getX() else 0 for i in range(self.sites * 2)]
+        return m
+
 
     def onehop(self):
         def hop(x_in):
@@ -102,6 +106,7 @@ class State:
 
     def energy(self,v,U,phi_0):
         psi_x = np.linalg.det(phi_0[self.getX()])
+        assert psi_x != 0
         jx = np.exp(-v * self.getDoubleNum())
         psi_jx = psi_x * jx
         ux = U * self.getDoubleNum()

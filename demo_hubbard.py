@@ -5,9 +5,9 @@ from State import *
 from copy import deepcopy
 import time
 
-L = 8       # system size (2D, L*L square lattice)
-N = 8      # num of electron
-U = 1       # take tunneling strength as a unit
+L = 5       # system size (2D, L*L square lattice)
+N = 4      # num of electron
+U = 4       # take tunneling strength as a unit
 sites = L**2
 
 def timeit(f):
@@ -16,7 +16,7 @@ def timeit(f):
         result = f(*args, **kw)
         te = time.time()
         print('func:%r args:[%r, %r] took: %2.4f sec' % \
-          (f.__name__, args[0:2], kw, te-ts))
+          (f.__name__, args, kw, te-ts))
         return result
     return timed
 
@@ -97,7 +97,7 @@ def sampling(U,N,L):
     return np.array(x)
 
 @timeit
-def fs(v,epsilon,M_optim,loop):
+def fs(v,epsilon,M_optim,loop,U,N,L):
     E = np.zeros(M_optim)
     V = np.zeros(M_optim+1)
     V[0] = v
@@ -107,36 +107,47 @@ def fs(v,epsilon,M_optim,loop):
     phi_0 = phi[: , np.argsort(e)[:N]]
 
     for ind_optim in range(M_optim):
+        np.random.seed()
         '''
-        if ind_optim > 5:
-            var = np.var(E[ind_optim-5:ind_optim])
-            print(var)
-            loop = int(1 / var)+100
+        if ind_optim > 4:
+            var = np.var(E[ind_optim-4:ind_optim])
+            loop = int(1 / var)*10+1000
+            loop = np.clip(loop,1000,1000)
+            print(loop,end="\r")
         '''
         samples = loop
-        energy = d = e_mul_d = 0
-        mat = phi_0 + np.random.rand(sites*2,N) / 10 ** 6     # add small pertubation to avoid singular matrix error
+        energy = d = e_mul_d = normalize = 0
+        s = np.zeros(sites * 2)
+        e_min = 0
+        mat = phi_0 + np.random.rand(sites*2,N) / 10 ** 8     # add small pertubation to avoid singular matrix error
         for _ in range(loop):
             try:
                 sample = sampling(mat,N,2*sites)
                 sample.sort()
                 state = State(sites,sample)
                 d = d - state.getDoubleNum()
-                energy = energy + state.energy(v,U,phi_0)
+                energy = energy + np.exp(-2*v * state.getDoubleNum()) * state.energy(v,U,phi_0)
+                normalize = normalize + np.exp(-2*v * state.getDoubleNum())
+                #print(state.energy(v,U,phi_0))
+                s = s + np.dot(np.exp(-2*v * state.getDoubleNum()), state.getState())
+                e_min = np.min([e_min,state.energy(v,U,phi_0)])
                 e_mul_d = e_mul_d - state.getDoubleNum() * state.energy(v,U,phi_0)
             except ValueError:
                 samples = samples - 1
         if samples / loop < 0.9: raise ValueError("Too many fails")
+        print("e_min = ", e_min)
         D = d / samples
-        E[ind_optim] = energy / samples
+        E[ind_optim] = energy/normalize
+        print(s / normalize)
         E_mul_D = e_mul_d / samples
         f = 2 * (E[ind_optim]*D - E_mul_D)
         v = v + epsilon * f
+        v = np.clip(v,-10,10)
         V[ind_optim+1] = v
-    return E,V
+    return E,V, s/normalize
 
 @timeit
-def vmc(v,epsilon,M_optim,Meq,Mc):
+def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L):
     interval = sites*2
     Mtotal = Meq + Mc * interval
     E = np.zeros(M_optim)
@@ -152,9 +163,17 @@ def vmc(v,epsilon,M_optim,Meq,Mc):
     
     # loop for grad descent 
     for ind_optim in range(M_optim):
+        '''
+        if ind_optim > 4:
+            var = np.var(E[ind_optim-4:ind_optim])
+            Mtotal = (int(1 / var)+100) * interval + Meq
+            Mtotal = np.clip(Mtotal,100,100000)
+            print(Mtotal,end="\r")
+        '''
         W = np.dot(phi_0, np.linalg.inv(phi_0[state.getX()]))
         mc = e = d = e_mul_d = 0
         np.random.seed()
+        s = np.zeros(sites * 2)
         # loop for VMC    
         for _ in range(Mtotal):
             # randomly choose a new configuration
@@ -179,36 +198,41 @@ def vmc(v,epsilon,M_optim,Meq,Mc):
                 mc += 1
                 d = d - state.getDoubleNum()
                 e = e + state.energy(v,U,phi_0)
+                #print(state.energy(v,U,phi_0))
+                s = s + state.getState()
+                #print(state.getState())
                 e_mul_d = e_mul_d - state.getDoubleNum() * state.energy(v,U,phi_0)
-
         D = d / mc
         E[ind_optim] = e / mc
         E_mul_D = e_mul_d / mc
+        print(s / mc)
         f = 2 * (E[ind_optim]*D - E_mul_D)  # calc gradient
         v = v + epsilon * f # update variational parameter
+        v = np.clip(v,-10,10)
         V[ind_optim+1] = v
-    return E,V
+    return E,V, s/mc
+def cosine(a,b): # cosine similarity between two vectors
+    return np.dot(a, b)/(np.linalg.norm(a)*np.linalg.norm(b))
 
 if __name__ == "__main__":
-    method = "fs"
-    if method == "fs": 
-        v = 1      # initial variational parameter
+    method = ["vmc"]
+    if "fs" in method: 
+        v = 0.448      # initial variational parameter
         epsilon = 0.1   # variational step length
-        M_optim = 12    # num of variational steps
-        loop = 100
-        E,V = fs(v,epsilon,M_optim,loop)
-    elif method == "vmc": 
-        v = 1      # initial variational parameter
+        M_optim = 1    # num of variational steps
+        loop = 10000
+        E,V,state1 = fs(v,epsilon,M_optim,loop,U,N,L)
+    if "vmc" in method: 
+        v = 0.448      # initial variational parameter
         epsilon = 0.1   # variational step length
-        M_optim = 12    # num of variational steps
+        M_optim = 1    # num of variational steps
         Meq = 1000      # vmc step to reach near ground state
-        Mc = 100        # vmc step to accumulate observable
-        E,V = vmc(v,epsilon,M_optim,Meq,Mc)
-
+        Mc = 10000        # vmc step to accumulate observable
+        E,V,state2 = vmc(v,epsilon,M_optim,Meq,Mc,U,N,L)
+    #print(cosine(state1,state2))
     print(E)
     print("Energy error = ", np.sqrt(np.var(E[-5:])))
     print(V)
-
     plt.figure()
     plt.plot(E, '+')
     plt.figure()

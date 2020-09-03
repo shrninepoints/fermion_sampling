@@ -6,3 +6,4 @@ train_vec/
 __pycache__/
 ED/
 *.ipynb
+*temp*

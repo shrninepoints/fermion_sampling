@@ -175,6 +175,16 @@ def sample_position(loop,method,U,N,L):
     elif method == "sampling2":
         for _ in range(loop):
             result = result + sampling2(U.T,N,L)
+    elif method == "test":
+        r = []
+        for _ in range(loop):
+            r.append(sampling(U.T,N,L))
+            result = result + sampling(U.T,N,L)
+        result = result / np.linalg.norm(result)
+        distance = np.zeros(loop)
+        for i in range(loop):
+            distance[i] = np.arccos(np.clip(np.dot(r[i] / np.linalg.norm(r[i]), result), -1.0, 1.0))
+        print(np.var(distance))
     else:
         raise Exception("UnknownMethod")
     print(result / loop)
@@ -210,38 +220,28 @@ def sample_state(loop,method,U,N,L):
     return count
 
 if __name__ == "__main__":
-    loop = 10000    # number of samples
-    N = 4         # num of particle
-    L = 16        # length of the system
+    loop = 1000    # number of samples
+    N = 1         # num of particle
+    L = 8        # length of the system
     U = unitary_group.rvs(L)
     U = U[0:N,:]
-    '''
-    B = np.zeros((N,L))
-    B0 = np.array([i/L for i in range(L)])
-    for i in range(N):
-        B[i] = np.power(B0,i)
-        B[i] = B[i] / np.sqrt(np.dot(B[i],B[i]))
-    l = np.dot(B.T,B)
-    K = l.dot(np.linalg.inv(l+np.identity(L)))
-    e,v = np.linalg.eig(l)
-    U = v.T[0:N]
-    '''
+
     print(U)
     
-    sample_position(loop,"sampling2",U,N,L)
-    sample_position(loop,"sampling",U,N,L)
+    #sample_position(loop,"sampling2",U,N,L)
+    sample_position(loop,"test",U,N,L)
     '''
-    count0 = np.array(sample_state(loop,"dpp",U,N,L))
-    count0 = count0[count0 != 0]    
-    count1 = np.array(sample_state(loop,"sampling2",U,N,L))
+    #count0 = np.array(sample_state(loop,"dpp",U,N,L))
+    #count0 = count0[count0 != 0]    
+    count1 = np.array(sample_state(loop,"sampling",U,N,L))
     count1 = count1[count1 != 0]
     count2 = np.array(exact(U,N,L))
     count2 = count2[count2 != 0]
     
-    v0_u = count0 / np.linalg.norm(count0)
+    #v0_u = count0 / np.linalg.norm(count0)
     v1_u = count1 / np.linalg.norm(count1)
     v2_u = count2 / np.linalg.norm(count2)
-    print("theta01 = ",np.arccos(np.clip(np.dot(v0_u, v1_u), -1.0, 1.0))) # dpp - sampling
-    print("theta02 = ",np.arccos(np.clip(np.dot(v0_u, v2_u), -1.0, 1.0))) # dpp - exact
+    #print("theta01 = ",np.arccos(np.clip(np.dot(v0_u, v1_u), -1.0, 1.0))) # dpp - sampling
+    #print("theta02 = ",np.arccos(np.clip(np.dot(v0_u, v2_u), -1.0, 1.0))) # dpp - exact
     print("theta12 = ",np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))) # sampling -exact '''
     pass
