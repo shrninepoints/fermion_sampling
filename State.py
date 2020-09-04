@@ -2,15 +2,9 @@ import numpy as np
 
 class State:
     def __init__(self,*args): # initialize with (x_up,x_down) or x
-        if len(args) == 3:
-            self.sites = args[0]
-            self.up = args[1]
-            self.down = args[2]
-        elif len(args) == 2:
-            self.sites = args[0]
-            N = len(args[1]) // 2
-            self.up = args[1][:N]
-            self.down = args[1][N:] - self.sites
+        self.sites = args[0]
+        self.up = args[1]
+        self.down = args[2]
     
     def getUpNum(self):
         return len(self.up)

@@ -5,7 +5,7 @@ from State import *
 from copy import deepcopy
 import time
 
-L = 5       # system size (2D, L*L square lattice)
+L = 4       # system size (2D, L*L square lattice)
 N = 4      # num of electron
 U = 4       # take tunneling strength as a unit
 sites = L**2
@@ -117,34 +117,33 @@ def fs(v,epsilon,M_optim,loop,U,N,L):
         '''
         samples = loop
         energy = d = e_mul_d = normalize = 0
-        s = np.zeros(sites * 2)
-        e_min = 0
-        mat = phi_0 + np.random.rand(sites*2,N) / 10 ** 8     # add small pertubation to avoid singular matrix error
+        e_list = weight_list = []
+        mat = phi_0 + np.random.rand(sites*2,N) / 10 ** 12     # add small pertubation to avoid singular matrix error
+        #print(mat)
         for _ in range(loop):
             try:
                 sample = sampling(mat,N,2*sites)
                 sample.sort()
-                state = State(sites,sample)
+                N_down = np.sum(np.sum(np.abs(phi_0[:L]),0) == 0)
+                state = State(sites,sample[:N-N_down],sample[N-N_down:]-sites)
                 d = d - state.getDoubleNum()
                 energy = energy + np.exp(-2*v * state.getDoubleNum()) * state.energy(v,U,phi_0)
                 normalize = normalize + np.exp(-2*v * state.getDoubleNum())
-                #print(state.energy(v,U,phi_0))
-                s = s + np.dot(np.exp(-2*v * state.getDoubleNum()), state.getState())
-                e_min = np.min([e_min,state.energy(v,U,phi_0)])
+                e_list.append(state.energy(v,U,phi_0))
+                weight_list = np.exp(-2*v * state.getDoubleNum())
                 e_mul_d = e_mul_d - state.getDoubleNum() * state.energy(v,U,phi_0)
             except ValueError:
                 samples = samples - 1
         if samples / loop < 0.9: raise ValueError("Too many fails")
-        print("e_min = ", e_min)
         D = d / samples
         E[ind_optim] = energy/normalize
-        print(s / normalize)
+        print(np.sum(np.dot(np.array(e_list - E[ind_optim]) ** 2,weight_list) / normalize))
         E_mul_D = e_mul_d / samples
         f = 2 * (E[ind_optim]*D - E_mul_D)
         v = v + epsilon * f
         v = np.clip(v,-10,10)
         V[ind_optim+1] = v
-    return E,V, s/normalize
+    return E,V
 
 @timeit
 def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L):
@@ -172,14 +171,13 @@ def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L):
         '''
         W = np.dot(phi_0, np.linalg.inv(phi_0[state.getX()]))
         mc = e = d = e_mul_d = 0
+        e_list = []
         np.random.seed()
-        s = np.zeros(sites * 2)
         # loop for VMC    
         for _ in range(Mtotal):
             # randomly choose a new configuration
             state_new = deepcopy(state)
             K,l = state_new.randomHopState()
-
             detRatio = W[K,l] # Recept in Markov chain
             J_Ratio = np.exp(-v * (state_new.getDoubleNum() - state.getDoubleNum())) # update of Jastrow factor
             r = np.square(np.abs(J_Ratio*detRatio))
@@ -198,37 +196,36 @@ def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L):
                 mc += 1
                 d = d - state.getDoubleNum()
                 e = e + state.energy(v,U,phi_0)
-                #print(state.energy(v,U,phi_0))
-                s = s + state.getState()
-                #print(state.getState())
+                e_list.append(state.energy(v,U,phi_0))
                 e_mul_d = e_mul_d - state.getDoubleNum() * state.energy(v,U,phi_0)
         D = d / mc
         E[ind_optim] = e / mc
+        print(np.sum(np.array(e_list - E[ind_optim]) ** 2) / 100)
         E_mul_D = e_mul_d / mc
-        print(s / mc)
         f = 2 * (E[ind_optim]*D - E_mul_D)  # calc gradient
         v = v + epsilon * f # update variational parameter
         v = np.clip(v,-10,10)
         V[ind_optim+1] = v
-    return E,V, s/mc
+    return E,V
+
 def cosine(a,b): # cosine similarity between two vectors
     return np.dot(a, b)/(np.linalg.norm(a)*np.linalg.norm(b))
 
 if __name__ == "__main__":
-    method = ["vmc"]
+    method = ["fs"]
     if "fs" in method: 
-        v = 0.448      # initial variational parameter
+        v = 0.44      # initial variational parameter
         epsilon = 0.1   # variational step length
         M_optim = 1    # num of variational steps
-        loop = 10000
-        E,V,state1 = fs(v,epsilon,M_optim,loop,U,N,L)
+        loop = 1000
+        E,V = fs(v,epsilon,M_optim,loop,U,N,L)
     if "vmc" in method: 
-        v = 0.448      # initial variational parameter
+        v = 0.44      # initial variational parameter
         epsilon = 0.1   # variational step length
-        M_optim = 1    # num of variational steps
+        M_optim = 8    # num of variational steps
         Meq = 1000      # vmc step to reach near ground state
-        Mc = 10000        # vmc step to accumulate observable
-        E,V,state2 = vmc(v,epsilon,M_optim,Meq,Mc,U,N,L)
+        Mc = 1000        # vmc step to accumulate observable
+        E,V = vmc(v,epsilon,M_optim,Meq,Mc,U,N,L)
     #print(cosine(state1,state2))
     print(E)
     print("Energy error = ", np.sqrt(np.var(E[-5:])))
