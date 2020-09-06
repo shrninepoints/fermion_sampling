@@ -117,7 +117,8 @@ def fs(v,epsilon,M_optim,loop,U,N,L):
         '''
         samples = loop
         energy = d = e_mul_d = normalize = 0
-        e_list = weight_list = []
+        e_list = []
+        weight_list = []
         mat = phi_0 + np.random.rand(sites*2,N) / 10 ** 12     # add small pertubation to avoid singular matrix error
         #print(mat)
         for _ in range(loop):
@@ -138,6 +139,7 @@ def fs(v,epsilon,M_optim,loop,U,N,L):
         if samples / loop < 0.9: raise ValueError("Too many fails")
         D = d / normalize
         E[ind_optim] = energy/normalize
+        print(normalize)
         print(np.sum(np.dot(np.array(e_list - E[ind_optim]) ** 2,weight_list) * (normalize / (normalize ** 2 - np.sum(np.array(weight_list)**2)))))
         E_mul_D = e_mul_d / normalize
         f = 2 * (E[ind_optim]*D - E_mul_D)
@@ -148,7 +150,7 @@ def fs(v,epsilon,M_optim,loop,U,N,L):
 
 @timeit
 def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L):
-    interval = sites*2
+    interval = sites * 2
     Mtotal = Meq + Mc * interval
     E = np.zeros(M_optim)
     V = np.zeros(M_optim+1)
@@ -174,6 +176,7 @@ def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L):
         mc = e = d = e_mul_d = 0
         np.random.seed()
         # loop for VMC    
+        e_list = []
         for _ in range(Mtotal):
             # randomly choose a new configuration
             state_new = deepcopy(state)
@@ -196,8 +199,11 @@ def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L):
                 mc += 1
                 d = d - state.getDoubleNum()
                 e = e + state.energy(v,U,phi_0)
+                e_list.append(state.energy(v,U,phi_0))
                 e_mul_d = e_mul_d - state.getDoubleNum() * state.energy(v,U,phi_0)
+        plt.figure(); plt.hist(e_list,bins=20); plt.show()
         D = d / mc
+        print(np.var(e_list))
         E[ind_optim] = e / mc
         E_mul_D = e_mul_d / mc
         f = 2 * (E[ind_optim]*D - E_mul_D)  # calc gradient
@@ -210,23 +216,22 @@ def cosine(a,b): # cosine similarity between two vectors
     return np.dot(a, b)/(np.linalg.norm(a)*np.linalg.norm(b))
 
 if __name__ == "__main__":
-    method = ["fs"]
+    method = ["vmc"]
     if "fs" in method: 
-        v = 0.64      # initial variational parameter
+        v = 0.44      # initial variational parameter
         epsilon = 0.03   # variational step length
-        M_optim = 8    # num of variational steps
-        loop = 100
+        M_optim = 4    # num of variational steps
+        loop = 1000
         E,V = fs(v,epsilon,M_optim,loop,U,N,L)
     if "vmc" in method: 
         v = 0.64     # initial variational parameter
         epsilon = 0.03   # variational step length
-        M_optim = 8    # num of variational steps
+        M_optim = 4    # num of variational steps
         Meq = 1000      # vmc step to reach near ground state
-        Mc = 100        # vmc step to accumulate observable
+        Mc = 1000        # vmc step to accumulate observable
         E,V = vmc(v,epsilon,M_optim,Meq,Mc,U,N,L)
     #print(cosine(state1,state2))
     print(E)
-    print("Energy error = ", np.sqrt(np.var(E[-5:])))
     print(V)
     plt.figure()
     plt.plot(E, '+')
