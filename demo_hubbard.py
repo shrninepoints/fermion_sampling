@@ -6,7 +6,7 @@ from copy import deepcopy
 import time
 
 L = 4       # system size (2D, L*L square lattice)
-N = 4      # num of electron
+N = 16      # num of electron
 U = 4       # take tunneling strength as a unit
 sites = L**2
 
@@ -138,6 +138,9 @@ def fs(v,epsilon,M_optim,loop,U,N,L):
         D = d / samples
         E[ind_optim] = energy/normalize
         print(np.sum(np.dot(np.array(e_list - E[ind_optim]) ** 2,weight_list) / normalize))
+        plt.figure()
+        plt.hist(e_list,bins = 30)
+        plt.show()
         E_mul_D = e_mul_d / samples
         f = 2 * (E[ind_optim]*D - E_mul_D)
         v = v + epsilon * f
@@ -171,7 +174,6 @@ def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L):
         '''
         W = np.dot(phi_0, np.linalg.inv(phi_0[state.getX()]))
         mc = e = d = e_mul_d = 0
-        e_list = []
         np.random.seed()
         # loop for VMC    
         for _ in range(Mtotal):
@@ -196,11 +198,9 @@ def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L):
                 mc += 1
                 d = d - state.getDoubleNum()
                 e = e + state.energy(v,U,phi_0)
-                e_list.append(state.energy(v,U,phi_0))
                 e_mul_d = e_mul_d - state.getDoubleNum() * state.energy(v,U,phi_0)
         D = d / mc
         E[ind_optim] = e / mc
-        print(np.sum(np.array(e_list - E[ind_optim]) ** 2) / 100)
         E_mul_D = e_mul_d / mc
         f = 2 * (E[ind_optim]*D - E_mul_D)  # calc gradient
         v = v + epsilon * f # update variational parameter
@@ -214,15 +214,15 @@ def cosine(a,b): # cosine similarity between two vectors
 if __name__ == "__main__":
     method = ["fs"]
     if "fs" in method: 
-        v = 0.44      # initial variational parameter
-        epsilon = 0.1   # variational step length
-        M_optim = 1    # num of variational steps
-        loop = 1000
+        v = 0.61      # initial variational parameter
+        epsilon = 0.00   # variational step length
+        M_optim = 5    # num of variational steps
+        loop = 100
         E,V = fs(v,epsilon,M_optim,loop,U,N,L)
     if "vmc" in method: 
-        v = 0.44      # initial variational parameter
+        v = 0.61     # initial variational parameter
         epsilon = 0.1   # variational step length
-        M_optim = 8    # num of variational steps
+        M_optim = 4    # num of variational steps
         Meq = 1000      # vmc step to reach near ground state
         Mc = 1000        # vmc step to accumulate observable
         E,V = vmc(v,epsilon,M_optim,Meq,Mc,U,N,L)
