@@ -126,22 +126,20 @@ def fs(v,epsilon,M_optim,loop,U,N,L):
                 sample.sort()
                 N_down = np.sum(np.sum(np.abs(phi_0[:L]),0) == 0)
                 state = State(sites,sample[:N-N_down],sample[N-N_down:]-sites)
-                d = d - state.getDoubleNum()
-                energy = energy + np.exp(-2*v * state.getDoubleNum()) * state.energy(v,U,phi_0)
-                normalize = normalize + np.exp(-2*v * state.getDoubleNum())
+                weight = np.exp(-2*v * state.getDoubleNum())
+                d = d - weight * state.getDoubleNum()
+                energy = energy + weight * state.energy(v,U,phi_0)
+                normalize = normalize + weight
                 e_list.append(state.energy(v,U,phi_0))
-                weight_list = np.exp(-2*v * state.getDoubleNum())
-                e_mul_d = e_mul_d - state.getDoubleNum() * state.energy(v,U,phi_0)
+                weight_list.append(weight)
+                e_mul_d = e_mul_d - weight * state.getDoubleNum() * state.energy(v,U,phi_0)
             except ValueError:
                 samples = samples - 1
         if samples / loop < 0.9: raise ValueError("Too many fails")
-        D = d / samples
+        D = d / normalize
         E[ind_optim] = energy/normalize
-        print(np.sum(np.dot(np.array(e_list - E[ind_optim]) ** 2,weight_list) / normalize))
-        plt.figure()
-        plt.hist(e_list,bins = 30)
-        plt.show()
-        E_mul_D = e_mul_d / samples
+        print(np.sum(np.dot(np.array(e_list - E[ind_optim]) ** 2,weight_list) * (normalize / (normalize ** 2 - np.sum(np.array(weight_list)**2)))))
+        E_mul_D = e_mul_d / normalize
         f = 2 * (E[ind_optim]*D - E_mul_D)
         v = v + epsilon * f
         v = np.clip(v,-10,10)
@@ -214,17 +212,17 @@ def cosine(a,b): # cosine similarity between two vectors
 if __name__ == "__main__":
     method = ["fs"]
     if "fs" in method: 
-        v = 0.61      # initial variational parameter
-        epsilon = 0.00   # variational step length
-        M_optim = 5    # num of variational steps
+        v = 0.64      # initial variational parameter
+        epsilon = 0.03   # variational step length
+        M_optim = 8    # num of variational steps
         loop = 100
         E,V = fs(v,epsilon,M_optim,loop,U,N,L)
     if "vmc" in method: 
-        v = 0.61     # initial variational parameter
-        epsilon = 0.1   # variational step length
-        M_optim = 4    # num of variational steps
+        v = 0.64     # initial variational parameter
+        epsilon = 0.03   # variational step length
+        M_optim = 8    # num of variational steps
         Meq = 1000      # vmc step to reach near ground state
-        Mc = 1000        # vmc step to accumulate observable
+        Mc = 100        # vmc step to accumulate observable
         E,V = vmc(v,epsilon,M_optim,Meq,Mc,U,N,L)
     #print(cosine(state1,state2))
     print(E)
