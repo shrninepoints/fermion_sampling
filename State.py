@@ -22,6 +22,8 @@ class State:
         return np.delete(np.arange(self.sites), self.up)
     def getEmptyDown(self):
         return np.delete(np.arange(self.sites), self.down)
+    def getL(self):
+        return int(np.sqrt(self.sites))
     def getState(self):
         m = [1 if i in self.getX() else 0 for i in range(self.sites * 2)]
         return m
@@ -91,7 +93,7 @@ class State:
                     down[i] = down[i] + L
                     result_hop.append(down)
             return result_hop
-        L = int(np.sqrt(self.sites))
+        L = self.getL()
         hop_up = hop(self.up)
         hop_down = hop(self.down)
         hop_up = [State(self.sites,item,self.down) for item in hop_up]
@@ -108,6 +110,47 @@ class State:
         double_prime = np.array([state.getDoubleNum() for state in x_prime])
         psi_x_prime = np.array([np.linalg.det(phi_0[state.getX()]) for state in x_prime])
         jx_prime = np.exp(-v * double_prime)        
+        E0 = (-np.sum(jx_prime * psi_x_prime) + ux*psi_jx) / psi_jx
+        return E0
+
+    @staticmethod
+    def distance2D(L,a,b):
+        def distance1D(a,b):
+            d = np.abs(a-b)
+            return d if d <= np.int(L/2) else L - d
+        a_coor = (a % L,a // L)
+        b_coor = (b % L,b // L)
+        return distance1D(a_coor[0],b_coor[0]) + distance1D(a_coor[1],b_coor[1])
+
+    # for a given configuration x, return the value of diag elements of local operator O_k(x)
+    # distance k ranges from 0 to int(L/2) 
+    def O_k(self):
+        o = np.zeros(self.getL() // 2 * 2 + 1,dtype=np.int8)
+        site_double = np.intersect1d(self.up, self.down)
+        site_occ = np.union1d(self.up, self.down)
+        n = np.zeros(self.sites, dtype=np.int8)
+        n[site_occ] = 1
+        n[site_double] = 2
+        o[0] = np.dot(n, n)
+        for ind in range(len(site_occ)):
+            i = site_occ[ind]
+            n_i = n[i]
+            for ind1 in range(len(site_occ)-ind-1):
+                j = site_occ[ind+ind1+1]
+                n_j = n[j]
+                k = State.distance2D(self.getL(),i,j)
+                o[k] = o[k] + n_i * n_j       
+        return o
+
+    def energy_jastrow(self,v,U,phi_0):
+        psi_x = np.linalg.det(phi_0[self.getX()])
+        assert psi_x != 0
+        jx = np.exp(-np.dot(v, self.O_k()))
+        psi_jx = psi_x * jx
+        ux = U * self.getDoubleNum()
+        x_prime = self.onehop()
+        psi_x_prime = np.array([np.linalg.det(phi_0[state.getX()]) for state in x_prime])
+        jx_prime = np.exp(-np.array([np.dot(v, state.O_k()) for state in x_prime]))
         E0 = (-np.sum(jx_prime * psi_x_prime) + ux*psi_jx) / psi_jx
         return E0
 
