@@ -2,12 +2,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import expm
 from State import *
+distance = State.distance2D
 from copy import deepcopy
 import time
 
-L = 16       # system size (2D, L*L square lattice)
-N = 16      # num of electron
-U = 0       # take tunneling strength as a unit
+L = 6       # system size (2D, L*L square lattice)
+N = 36      # num of electron
+U = 4       # take tunneling strength as a unit
 sites = L**2
 
 def timeit(f):
@@ -85,11 +86,10 @@ def sampling(U,N,L):
                     p[j] = np.square(np.float128(np.abs(detUpdate(delta_v,-1,first_matrix_inv,first_matrix_det,0))))
                     # use of higher accuracy is necessary, otherwise introduce divide by 0 for small first_matrix_det
         p = np.float64(p / sum(p))
-        plt.figure()
-        plt.plot(p)
-        plt.show()
+        if len(x) > 400:
+            print(x)
+            plt.figure(); plt.plot(p); plt.show()
         x.append(np.random.choice(L,p = p))    # choose position wrt p 
-        print(x)
         if i == 0:  # the choosen matrix, either the very first one or of new ranks, O(n^2)
             choosen_matrix = np.array([[U[x[0],v[0]]]])
             prev_matrix_inv = np.array([[1/choosen_matrix[0,0]]])
@@ -109,6 +109,7 @@ def fs(v,epsilon,M_optim,loop,U,N,L):
     H = hamiltonian(L)
     e, phi = np.linalg.eigh(H)
     phi_0 = phi[: , np.argsort(e)[:N]]
+    N_down = np.sum(np.sum(np.abs(phi_0[:L]),0) == 0)
 
     for ind_optim in range(M_optim):
         np.random.seed()
@@ -129,7 +130,6 @@ def fs(v,epsilon,M_optim,loop,U,N,L):
             try:
                 sample = sampling(mat,N,2*sites)
                 sample.sort()
-                N_down = np.sum(np.sum(np.abs(phi_0[:L]),0) == 0)
                 state = State(sites,sample[:N-N_down],sample[N-N_down:]-sites)
                 doubleNum = state.getDoubleNum()
                 e = state.energy(v,U,phi_0)
@@ -166,8 +166,7 @@ def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L):
     e, phi = np.linalg.eigh(H)
     phi_0 = phi[: , np.argsort(e)[:N]]
     N_down = np.sum(np.sum(np.abs(phi_0[:L]),0) == 0)
-    N_up = N - N_down
-    state = State(sites,np.random.choice(sites, np.int(N_up), replace=False),np.random.choice(sites, np.int(N_down), replace=False))    # initial state
+    state = State(sites,np.random.choice(sites, np.int(N - N_down), replace=False),np.random.choice(sites, np.int(N_down), replace=False))    # initial state
     
     # loop for grad descent 
     for ind_optim in range(M_optim):
@@ -218,146 +217,262 @@ def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L):
         V[ind_optim+1] = v
     return E,V
 
-def sr():
-    # optimization (SR)
-    # v = np.zeros(np.int(L/2)+1)
-    U = 1
-    v = np.random.rand(np.int(L/2)+1) * 0.5
-    # v = np.random.rand(np.int(L/2)+1) * np.array([3,0,0,0])
-    epsilon = 0.05
-    M_optim = 20
+@timeit
+def vmc_sr(v,epsilon,M_optim,Meq,Mc,U,N,L):
 
-    Meq = 2000
-    Mc = 200
-    interval = L * 2
+    interval = sites * 2
     Mtotal = Meq + Mc * interval
-
     E = np.zeros(M_optim)
-    V = np.zeros((M_optim+1, np.int(L/2)+1))
+    param_num = L if L % 2 == 1 else L+1
+    print(param_num)
+    V = np.zeros((M_optim+1,param_num))
     V[0] = v
 
-    # loop for gred descent 
+    H = hamiltonian(L)
+    e, phi = np.linalg.eigh(H)
+    phi_0 = phi[: , np.argsort(e)[:N]]
+    N_down = np.sum(np.sum(np.abs(phi_0[:L]),0) == 0)
+    N_up = N - N_down
+    state = State(sites,np.random.choice(sites, np.int(N_up), replace=False),np.random.choice(sites, np.int(N_down), replace=False))    # initial state
+
+    # loop for sr 
     for ind_optim in range(M_optim):
-        W = np.dot(phi_0, np.linalg.inv(phi_0[x]))
+
+        '''
+        if ind_optim > 4:
+            var = np.var(E[ind_optim-4:ind_optim])
+            Mtotal = (int(1 / var)+100) * interval + Meq
+            Mtotal = np.clip(Mtotal,100,100000)
+            print(Mtotal,end="\r")
+        '''
+        W = np.dot(phi_0, np.linalg.inv(phi_0[state.getX()]))
+        mc = e = d = e_mul_o = 0
+        np.random.seed()
         A = v - v[0]
-        site_double = np.intersect1d(x_up, x_down)
-        site_occ = np.union1d(x_up, x_down)
-        n = np.zeros(L, dtype=np.int8)
+
+        site_double = np.intersect1d(state.up, state.down)
+        site_occ = np.union1d(state.up, state.down)
+        n = np.zeros(sites, dtype=np.int8)
         n[site_occ] = 1
         n[site_double] = 2
-        T = np.zeros(L)
+        T = np.zeros(sites)
         for i in range(len(site_occ)):
             ind = site_occ[i]
-            for j in range(L):
-                d = distance(ind,j)
+            for j in range(sites):
+                d = distance(L,ind,j)
                 T[ind] = T[ind] + v[d] * n[j]
-        mc = 0
-        e = 0
-        o = np.zeros(np.int(L/2)+1, dtype=np.int)
-        o_mul_o = np.zeros((np.int(L/2)+1, np.int(L/2)+1), dtype=np.int)
-        e_mul_o = 0
 
-        random.seed()
+        o = np.zeros(param_num, dtype=np.int)
+        o_mul_o = np.zeros((param_num, param_num), dtype=np.int)
+
+        np.random.seed()
         for _ in range(Mtotal):
         # randomly choose a new configuration
-            index_change = np.random.randint(N)
-            l = index_change
+            state_new = deepcopy(state)
+            K,l = state_new.randomHopState()
+            rl = state.getX()[l]
 
-            if index_change < N_up:
-                index_new = np.random.randint(L-N_up)
-                x_up_new = x_up.copy()
-                x_up_new[index_change] = site_empty_up[index_new]
-                x_down_new = x_down
-                rl = x_up[l]
-                K = site_empty_up[index_new]
-            else:
-                index_new = np.random.randint(L-N_down)
-                x_down_new = x_down.copy()
-                x_down_new[index_change-N_up] = site_empty_down[index_new]
-                x_up_new = x_up
-                rl = x_down[l-N_up] + L
-                K = site_empty_down[index_new]+L
-
-            site_double_number_new = np.size(np.intersect1d(x_up_new, x_down_new))
-
-            J_Ratio = np.exp(T[rl%L] - T[K%L] + A[distance(rl%L, K%L)])
+            J_Ratio = np.exp(T[rl%sites] - T[K%sites] + A[distance(L,rl%sites, K%sites)])
             detRatio = W[K,l]
 
             # Recept in Markov chain
             r = np.square(np.abs(J_Ratio*detRatio))
             if np.random.rand() < np.min([1, r]):
-                # to be updated: x_up, x_down, x, site_empty_up/down, site_double_number, W
-                x_up = x_up_new
-                x_down = x_down_new
-                site_double_number = site_double_number_new
-                x = np.append(x_up, x_down+L)
-                site_empty_up = np.delete(np.arange(L), x_up)
-                site_empty_down = np.delete(np.arange(L), x_down)
+                state = state_new
                 # update of Jastrow factor
-                for j in range(L):
-                    d_kj = distance(j, K%L)
-                    d_lj = distance(j, rl%L)
+                for j in range(sites):
+                    d_kj = distance(L, j, K%sites)
+                    d_lj = distance(L, j, rl%sites)
                     T[j] = T[j] + v[d_kj] - v[d_lj]
-
-                # update of determinant (for details, see below)
-                W_Il = W[:, l].reshape(2*L,1) * np.ones_like(W)
+                # update of determinant
+                W_Il = W[:, l].reshape(2*sites,1) * np.ones_like(W)
                 W_Kj = W[K] * np.ones_like(W)
                 W_Il_delta_lj = np.zeros_like(W)
                 W_Il_delta_lj[:, l] = W[:, l]
                 W_new = W - W_Il * W_Kj / W[K,l] + W_Il_delta_lj / W[K,l]
                 W = W_new
 
-            # compute the autocorrelation function
-
             # extract the results
             if _ >= Meq and (_ - Meq) % interval == 0:
                 mc += 1
-                tmp_o = O_k(x_up, x_down)
-                tmp_e = energy_var_jastrow(x_up, x_down)[0]
+                tmp_o = state.O_k()
+                tmp_e = state.energy_jastrow(v,U,phi_0)
                 o = o - tmp_o
                 e = e + tmp_e
                 e_mul_o = e_mul_o - tmp_o * tmp_e
-                tmp_o_vec = tmp_o.reshape((np.int(L/2)+1,1))
+                tmp_o_vec = tmp_o.reshape((param_num,1))
                 o_mul_o = o_mul_o + np.dot(tmp_o_vec, tmp_o_vec.T)
             
         O = o / mc
         E[ind_optim] = e / mc
         E_mul_O = e_mul_o / mc
         f = 2 * (E[ind_optim]*O - E_mul_O)
-        O_vec = O.reshape((np.int(L/2)+1, 1))
+        O_vec = O.reshape((param_num, 1))
         S = o_mul_o / mc - np.dot(O_vec, O_vec.T)
-
-        dealt_v = np.linalg.solve(S, epsilon * f)
-
+        print(S)
+        try:
+            dealt_v = np.linalg.solve(S, epsilon * f)
+        except:
+            S = S + np.random.rand(param_num,param_num) / 10 ** 4
+            dealt_v = np.linalg.solve(S, epsilon * f)
         v = v + dealt_v
+        v = np.clip(v,-10,10)
         V[ind_optim+1] = v
-        # print(O, E_mul_O)
-        # print(f[0])
+    return E,V
 
-    print(V)
-    print(E)
-    plt.figure()
-    plt.plot(E, '+')
-    plt.figure()
-    plt.plot(V[:, 0], '+')
+@timeit
+def fs_corr(v,loop,U,N,L):
+    sites = L**2
+    H = hamiltonian(L)
+    e, phi = np.linalg.eigh(H)
+    phi_0 = phi[: , np.argsort(e)[:N]]
 
-if __name__ == "__main__":
+    np.random.seed()
+    samples = loop
+    energy = d = normalize = 0
+    e_list = []
+    weight_list = []
+    correlation_up = np.zeros((sites, sites))
+    correlation_down = np.zeros((sites, sites))
+    correlation_pair = np.zeros((sites, sites))
+    correlation_n = np.zeros((sites, sites))
+    correlation_s = np.zeros((sites, sites))
+    mat = phi_0 + np.random.rand(sites*2,N) / 10 ** 12     # add small pertubation to avoid singular matrix error
+    #print(mat)
+    for _ in range(loop):
+        try:
+            sample = sampling(mat,N,2*sites)
+            sample.sort()
+            N_down = np.sum(np.sum(np.abs(phi_0[:L]),0) == 0)
+            state = State(sites,sample[:N-N_down],sample[N-N_down:]-sites)
+            weight = np.exp(-2*v * state.getDoubleNum())
+            d = d - weight * state.getDoubleNum()
+            energy = energy + weight * state.energy(v,U,phi_0)
+            normalize = normalize + weight
+            e_list.append(state.energy(v,U,phi_0))
+            weight_list.append(weight)
+            a,b = state.correlation_c(v,phi_0)
+            correlation_up = correlation_up + a * weight
+            correlation_down = correlation_down + b * weight
+            correlation_pair = correlation_pair + state.correlation_pair(v,phi_0) * weight
+            a,b = state.correlation_ns(v,phi_0)
+            correlation_n = correlation_n + a * weight
+            correlation_s = correlation_s + b * weight
+        except ValueError:
+            samples = samples - 1
+    if samples / loop < 0.9: raise ValueError("Too many fails")
+    Correlation_up = correlation_up / normalize
+    Correlation_down = correlation_down / normalize
+    Correlation_pair = correlation_pair / normalize
+    Correlation_n = correlation_n / normalize
+    Correlation_s = correlation_s / normalize
+    # D = d / normalize
+    # E[ind_optim] = energy/normalize
+    # print(normalize)
+    # print(np.sum(np.dot(np.array(e_list - E[ind_optim]) ** 2,weight_list) * (normalize / (normalize ** 2 - np.sum(np.array(weight_list)**2))))) 
+    return Correlation_up, Correlation_down, Correlation_pair, Correlation_n, Correlation_s
+
+@timeit
+def vmc_corr(v,Meq,Mc,U,N,L):
+    sites = L**2
+    interval = sites * 2
+    Mtotal = Meq + Mc * interval
+
+    H = hamiltonian(L)
+    e, phi = np.linalg.eigh(H)
+    phi_0 = phi[: , np.argsort(e)[:N]]
+    N_down = np.sum(np.sum(np.abs(phi_0[:L]),0) == 0)
+    N_up = N - N_down
+    state = State(sites,np.random.choice(sites, np.int(N_up), replace=False),np.random.choice(sites, np.int(N_down), replace=False))    # initial state
+    
+    W = np.dot(phi_0, np.linalg.inv(phi_0[state.getX()]))
+    mc = e = 0
+    correlation_up = np.zeros((sites, sites))
+    correlation_down = np.zeros((sites, sites))
+    correlation_pair = np.zeros((sites, sites))
+    correlation_n = np.zeros((sites, sites))
+    correlation_s = np.zeros((sites, sites))
+    np.random.seed()
+    # loop for VMC    
+    for _ in range(Mtotal):
+        # randomly choose a new configuration
+        state_new = deepcopy(state)
+        K,l = state_new.randomHopState()
+        detRatio = W[K,l] # Recept in Markov chain
+        J_Ratio = np.exp(-v * (state_new.getDoubleNum() - state.getDoubleNum())) # update of Jastrow factor
+        r = np.square(np.abs(J_Ratio*detRatio))
+        if np.random.rand() < np.min([1, r]):
+            state = state_new
+            # update of determinant
+            W_Il = W[:, l].reshape(2*sites,1) * np.ones_like(W)
+            W_Kj = W[K] * np.ones_like(W)
+            W_Il_delta_lj = np.zeros_like(W)
+            W_Il_delta_lj[:, l] = W[:, l]
+            W_new = W - W_Il * W_Kj / W[K,l] + W_Il_delta_lj / W[K,l]
+            W = W_new
+
+        # extract the results
+        if _ >= Meq and (_ - Meq) % interval == 0:
+            mc += 1
+            a,b = state.correlation_c(v,phi_0)
+            correlation_up = correlation_up + a
+            correlation_down = correlation_down + b
+            correlation_pair = correlation_pair + state.correlation_pair(v,phi_0)
+            a,b = state.correlation_ns(v,phi_0)
+            correlation_n = correlation_n + a
+            correlation_s = correlation_s + b
+
+    Correlation_up = correlation_up / mc
+    Correlation_down = correlation_down / mc
+    Correlation_pair = correlation_pair / mc
+    Correlation_n = correlation_n / mc
+    Correlation_s = correlation_s / mc       
+
+    return Correlation_up, Correlation_down, Correlation_pair, Correlation_n, Correlation_s
+
+def corr():
     method = ["fs"]
     if "fs" in method: 
-        v = 0.4381      # initial variational parameter
-        epsilon = 0.0   # variational step length
-        M_optim = 1    # num of variational steps
-        loop = 1
+        v = 1      
+        loop = 1000
+        Correlation_up, Correlation_down, Correlation_pair, Correlation_n, Correlation_s = fs_corr(v,loop,U,N,L)
+
+    if "vmc" in method: 
+        v = 1      
+        Meq = 1000
+        Mc = 100
+        Correlation_up, Correlation_down, Correlation_pair, Correlation_n, Correlation_s = vmc_corr(v,Meq,Mc,U,N,L)
+
+    print(np.sum(np.diag(Correlation_up)))
+    print(np.sum(np.diag(Correlation_down)))
+    print(np.sum(np.diag(Correlation_pair)))
+    print(np.diag(Correlation_n))    
+    plt.figure(); plt.imshow(Correlation_pair); plt.colorbar()
+    plt.figure(); plt.imshow(Correlation_down); plt.colorbar()
+    plt.show()
+
+def optimize():
+    method = ["fs"]
+    if "fs" in method: 
+        v = -1      # initial variational parameter
+        epsilon = 0.12   # variational step length
+        M_optim = 16    # num of variational steps
+        loop = 100
         E,V = fs(v,epsilon,M_optim,loop,U,N,L)
     if "vmc" in method: 
-        v = 0.4381     # initial variational parameter
-        epsilon = 0.0   # variational step length
+        v = 1     # initial variational parameter
+        epsilon = 0.12   # variational step length
         M_optim = 16    # num of variational steps
-        Meq = 10000      # vmc step to reach near ground state
-        Mc = 1000        # vmc step to accumulate observable
+        Meq = 1000      # vmc step to reach near ground state
+        Mc = 100        # vmc step to accumulate observable
         E,V = vmc(v,epsilon,M_optim,Meq,Mc,U,N,L)
     if "sr" in method:
-        v = np.random.rand(np.int(L/2)+1) * 0.3
+        v = np.array([4.665482 ,1.04390547 ,1.08708198])
+        epsilon = 0.001   # variational step length
+        M_optim = 16    # num of variational steps
+        Meq = 1000      # vmc step to reach near ground state
+        Mc = 1000        # vmc step to accumulate observable
+        E,V = vmc_sr(v,epsilon,M_optim,Meq,Mc,U,N,L)
 
     #print(cosine(state1,state2))
     print(E)
@@ -368,4 +483,7 @@ if __name__ == "__main__":
     plt.plot(E, '+')
     plt.figure()
     plt.plot(V, '+')
-    #plt.show()
+    plt.show()
+
+if __name__ == "__main__":
+    corr()

@@ -28,7 +28,6 @@ class State:
         m = [1 if i in self.getX() else 0 for i in range(self.sites * 2)]
         return m
 
-
     def onehop(self):
         def hop(x_in):
             result_hop = []
@@ -165,3 +164,80 @@ class State:
             self.down[index_change-self.getUpNum()] = self.getEmptyDown()[index_new]
             K = self.down[index_change-self.getUpNum()] + self.sites
         return (K,index_change)
+
+    def correlation_c(self,v,phi_0):
+        x = self.getX()
+        psi_0_x = np.linalg.det(phi_0[self.getX()])
+        assert psi_0_x != 0
+        jx = np.exp(-v * self.getDoubleNum())
+        psi_jx = jx * psi_0_x
+        c_up = np.zeros((self.sites, self.sites))
+        c_down = np.zeros((self.sites, self.sites))
+
+        for ind in range(self.getUpNum()):
+            row_i = np.zeros(self.sites)
+            for j in range(self.sites):
+                x_hop = x.copy()
+                x_hop[ind] = j
+                x_up_hop = (self.up).copy()
+                x_up_hop[ind] = j
+                double_hop = np.size(np.intersect1d(x_up_hop, self.down))
+                jx_hop = np.exp(-v * double_hop)
+                row_i[j] = jx_hop * np.linalg.det(phi_0[x_hop])
+            c_up[x[ind]] = row_i
+        
+        for ind_down in range(self.getDownNum()):
+            row_i = np.zeros(self.sites)
+            for j in range(self.sites):
+                x_hop = x.copy()
+                x_hop[ind_down+self.getUpNum()] = j+self.sites
+                x_down_hop = (self.down).copy()
+                x_down_hop[ind_down] = j
+                double_hop = np.size(np.intersect1d(self.up, x_down_hop))
+                jx_hop = np.exp(-v * double_hop)
+                row_i[j] = jx_hop * np.linalg.det(phi_0[x_hop])
+            c_down[x[ind_down+self.getUpNum()]-self.sites] = row_i
+      
+        correlation_up = c_up / psi_jx
+        correlation_down = c_down / psi_jx
+
+        return correlation_up, correlation_down
+
+    def correlation_pair(self,v,phi_0):
+        x = self.getX()
+        psi_0_x = np.linalg.det(phi_0[self.getX()])
+        assert psi_0_x != 0
+        c_pair = np.zeros((self.sites, self.sites))
+        site_double = self.getDoubleOccupance()
+        # print(x, site_double)
+
+        for ind in range(self.getDoubleNum()):
+            row_i = np.zeros(self.sites)
+            for j in range(self.sites):
+                # print(np.argwhere(x==site_double[ind]))
+                ind_up = np.argwhere(x==site_double[ind])[0,0]
+                ind_down = np.argwhere(x==site_double[ind]+self.sites)[0,0]
+                x_hop = x.copy()
+                x_hop[ind_up] = j
+                x_hop[ind_down] = j+self.sites
+                row_i[j] = np.linalg.det(phi_0[x_hop])
+            c_pair[self.getDoubleOccupance()[ind]] = row_i
+
+        correlation_pair = c_pair / psi_0_x
+        return correlation_pair
+
+
+    def correlation_ns(self,v,phi_0):
+        psi_0_x = np.linalg.det(phi_0[self.getX()])
+        assert psi_0_x != 0
+        
+        n_up = np.zeros((self.sites,1))
+        n_up[self.up] = 1
+        n_down = np.zeros((self.sites,1))
+        n_down[self.down] = 1
+        n_x = n_up + n_down
+        s_x = n_up - n_down
+        correlation_n = np.dot(n_x, n_x.T)
+        correlation_s = np.dot(s_x, s_x.T)
+
+        return correlation_n, correlation_s
