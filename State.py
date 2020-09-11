@@ -100,14 +100,27 @@ class State:
         return hop_up + hop_down 
 
     def energy(self,v,U,phi_0):
+        def detUpdate(delta_v,delta_index,U_inv,U_det,axis):  # detUpdate result could be minus det, but we don't care here                                   
+            if axis == 0:
+                detRatio = 1 + np.dot(U_inv[:,delta_index],delta_v)
+            elif axis == 1:
+                detRatio = 1 + np.dot(U_inv[delta_index,:],delta_v) # delta_v input can be either row or column vector
+            return detRatio * U_det     # return value is a complex number
+        
         psi_x = np.linalg.det(phi_0[self.getX()])
+        psi_x_inv = np.linalg.inv(phi_0[self.getX()])
         assert psi_x != 0
         jx = np.exp(-v * self.getDoubleNum())
         psi_jx = psi_x * jx
         ux = U * self.getDoubleNum()
         x_prime = self.onehop()
         double_prime = np.array([state.getDoubleNum() for state in x_prime])
-        psi_x_prime = np.array([np.linalg.det(phi_0[state.getX()]) for state in x_prime])
+        psi_x_prime = []
+        for state in x_prime:
+            delta = np.nonzero(state.getX() - self.getX())
+            assert len(delta) == 1
+            delta_v = phi_0[state.getX()[delta]] - phi_0[self.getX()[delta]]
+            psi_x_prime.append(np.float(detUpdate(delta_v[0],delta[0][0],psi_x_inv,psi_x,0)))
         jx_prime = np.exp(-v * double_prime)        
         E0 = (-np.sum(jx_prime * psi_x_prime) + ux*psi_jx) / psi_jx
         return E0

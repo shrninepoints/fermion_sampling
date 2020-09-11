@@ -6,9 +6,10 @@ distance = State.distance2D
 from copy import deepcopy
 import time
 
-L = 6       # system size (2D, L*L square lattice)
-N = 36      # num of electron
-U = 4       # take tunneling strength as a unit
+L = 4       # system size (2D, L*L square lattice)
+N = 16      # num of electron
+U = 0       # take tunneling strength as a unit
+disorder = 4
 sites = L**2
 
 def timeit(f):
@@ -33,8 +34,9 @@ def hamiltonian(L,U = 0):
     H1[sites-1, L-1] = -1
     H1[sites-1, sites-L] = -1
     H1 = H1 + H1.T
-    H = np.kron(np.identity(2), H1)
-    return H
+    impurity = np.random.rand(sites)
+    H = np.kron(np.identity(2), H1) - disorder * np.diag(np.append(impurity,impurity))
+    return (H,impurity)
 
 def sampling(U,N,L):
     # dealing with matrix that changed a row / collum, return new det with O(n)
@@ -101,15 +103,17 @@ def sampling(U,N,L):
     return np.array(x)
 
 @timeit
-def fs(v,epsilon,M_optim,loop,U,N,L):
+def fs(v,epsilon,M_optim,loop,U,N,L,disorder):
     E = np.zeros(M_optim)
     V = np.zeros(M_optim+1)
     V[0] = v
 
-    H = hamiltonian(L)
+    #H,impurity = hamiltonian(L)
     e, phi = np.linalg.eigh(H)
     phi_0 = phi[: , np.argsort(e)[:N]]
     N_down = np.sum(np.sum(np.abs(phi_0[:L]),0) == 0)
+    e.sort()
+    print("theo energy = ", np.sum(e[:N]))
 
     for ind_optim in range(M_optim):
         np.random.seed()
@@ -122,8 +126,10 @@ def fs(v,epsilon,M_optim,loop,U,N,L):
         '''
         samples = loop
         energy = d = e_mul_d = normalize = 0
-        e_list = []
+        particle = 0
+        #e_list = []
         weight_list = []
+        particle_list = []
         mat = phi_0 + np.random.rand(sites*2,N) / 10 ** 12     # add small pertubation to avoid singular matrix error
         #print(mat)
         for _ in range(loop):
@@ -132,21 +138,23 @@ def fs(v,epsilon,M_optim,loop,U,N,L):
                 sample.sort()
                 state = State(sites,sample[:N-N_down],sample[N-N_down:]-sites)
                 doubleNum = state.getDoubleNum()
-                e = state.energy(v,U,phi_0)
+                e = state.energy(v,U,phi_0) - disorder * (np.dot(state.getState()[0:sites],impurity) + np.dot(state.getState()[sites:],impurity))
                 weight = np.exp(-2*v * doubleNum)
                 d = d - weight * doubleNum
                 energy = energy + weight * e
                 normalize = normalize + weight
-                e_list.append(e)
-                weight_list.append(weight)
+                #e_list.append(e)
+                #weight_list.append(weight)
+                if 1 in sample: particle = particle + weight
+                if 1 + sites in sample: particle = particle + weight
                 e_mul_d = e_mul_d - weight * doubleNum * e
             except ValueError:
                 samples = samples - 1
         if samples / loop < 0.9: raise ValueError("Too many fails")
         D = d / normalize
-        E[ind_optim] = energy/normalize
-        #print(normalize)
-        print(np.sum(np.dot(np.array(e_list - E[ind_optim]) ** 2,weight_list) * (normalize / (normalize ** 2 - np.sum(np.array(weight_list)**2)))))
+        E[ind_optim] = particle/normalize
+        #print(np.sum(np.dot(np.array(e_list - E[ind_optim]) ** 2,weight_list) * (normalize / (normalize ** 2 - np.sum(np.array(weight_list)**2)))))
+        
         E_mul_D = e_mul_d / normalize
         f = 2 * (E[ind_optim]*D - E_mul_D)
         v = v + epsilon * f
@@ -155,19 +163,20 @@ def fs(v,epsilon,M_optim,loop,U,N,L):
     return E,V
 
 @timeit
-def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L):
-    interval = sites * 2
+def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L,disorder):
+    interval = N
     Mtotal = Meq + Mc * interval
     E = np.zeros(M_optim)
     V = np.zeros(M_optim+1)
     V[0] = v
 
-    H = hamiltonian(L)
+    #H,impurity = hamiltonian(L)
     e, phi = np.linalg.eigh(H)
     phi_0 = phi[: , np.argsort(e)[:N]]
     N_down = np.sum(np.sum(np.abs(phi_0[:L]),0) == 0)
     state = State(sites,np.random.choice(sites, np.int(N - N_down), replace=False),np.random.choice(sites, np.int(N_down), replace=False))    # initial state
-    
+    e.sort()
+    print("theo energy = ", np.sum(e[:N]))
     # loop for grad descent 
     for ind_optim in range(M_optim):
         '''
@@ -179,6 +188,7 @@ def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L):
         '''
         W = np.dot(phi_0, np.linalg.inv(phi_0[state.getX()]))
         mc = e = d = e_mul_d = 0
+        particle = 0
         np.random.seed()
         # loop for VMC    
         e_list = []
@@ -203,13 +213,28 @@ def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L):
             if _ >= Meq and (_ - Meq) % interval == 0:
                 mc += 1
                 d = d - state.getDoubleNum()
-                e = e + state.energy(v,U,phi_0)
+                e = e + state.energy(v,U,phi_0) - disorder * (np.dot(state.getState()[0:sites],impurity) + np.dot(state.getState()[sites:],impurity))
                 e_list.append(state.energy(v,U,phi_0))
                 e_mul_d = e_mul_d - state.getDoubleNum() * state.energy(v,U,phi_0)
-        #plt.figure(); plt.hist(e_list,bins=20); plt.show()
+                if 1 in state.getX(): particle = particle + 1
+                if 1 + sites in state.getX(): particle = particle + 1
+       
+        def correlation_length():
+            def autocorrelation(step,e_list):
+                assert len(e_list[step:]) == len(e_list[0:len(e_list)-step])
+                cov = np.cov(e_list[step:],e_list[0:len(e_list)-step])[0][1]
+                return cov / np.var(e_list)
+            ac_list = []
+            for step in range(90):
+                ac_list.append(autocorrelation(step,e_list))
+            #print(ac_list)
+            print("tau = ",abs(np.polyfit(np.log(np.abs(ac_list[0:10])), np.arange(10), 1)[0])) # corr length / (sites*2)
+            print("integrated tau = ", np.sum(ac_list))        
+            #plt.figure(); plt.plot(ac_list); plt.show()   
+        correlation_length()
+        
         D = d / mc
-        print(np.var(e_list))
-        E[ind_optim] = e / mc
+        E[ind_optim] = particle / mc
         E_mul_D = e_mul_d / mc
         f = 2 * (E[ind_optim]*D - E_mul_D)  # calc gradient
         v = v + epsilon * f # update variational parameter
@@ -328,48 +353,34 @@ def fs_corr(v,loop,U,N,L):
     phi_0 = phi[: , np.argsort(e)[:N]]
 
     np.random.seed()
-    samples = loop
-    energy = d = normalize = 0
-    e_list = []
-    weight_list = []
+    energy = normalize = 0
     correlation_up = np.zeros((sites, sites))
     correlation_down = np.zeros((sites, sites))
     correlation_pair = np.zeros((sites, sites))
     correlation_n = np.zeros((sites, sites))
     correlation_s = np.zeros((sites, sites))
     mat = phi_0 + np.random.rand(sites*2,N) / 10 ** 12     # add small pertubation to avoid singular matrix error
-    #print(mat)
     for _ in range(loop):
-        try:
-            sample = sampling(mat,N,2*sites)
-            sample.sort()
-            N_down = np.sum(np.sum(np.abs(phi_0[:L]),0) == 0)
-            state = State(sites,sample[:N-N_down],sample[N-N_down:]-sites)
-            weight = np.exp(-2*v * state.getDoubleNum())
-            d = d - weight * state.getDoubleNum()
-            energy = energy + weight * state.energy(v,U,phi_0)
-            normalize = normalize + weight
-            e_list.append(state.energy(v,U,phi_0))
-            weight_list.append(weight)
-            a,b = state.correlation_c(v,phi_0)
-            correlation_up = correlation_up + a * weight
-            correlation_down = correlation_down + b * weight
-            correlation_pair = correlation_pair + state.correlation_pair(v,phi_0) * weight
-            a,b = state.correlation_ns(v,phi_0)
-            correlation_n = correlation_n + a * weight
-            correlation_s = correlation_s + b * weight
-        except ValueError:
-            samples = samples - 1
-    if samples / loop < 0.9: raise ValueError("Too many fails")
+        sample = sampling(mat,N,2*sites)
+        sample.sort()
+        N_down = np.sum(np.sum(np.abs(phi_0[:L]),0) == 0)
+        state = State(sites,sample[:N-N_down],sample[N-N_down:]-sites)
+        weight = np.exp(-2*v * state.getDoubleNum())
+        energy = energy + weight * state.energy(v,U,phi_0)
+        normalize = normalize + weight
+        a,b = state.correlation_c(v,phi_0)
+        correlation_up = correlation_up + a * weight
+        correlation_down = correlation_down + b * weight
+        correlation_pair = correlation_pair + state.correlation_pair(v,phi_0) * weight
+        a,b = state.correlation_ns(v,phi_0)
+        correlation_n = correlation_n + a * weight
+        correlation_s = correlation_s + b * weight
+    print("normal = ",normalize)
     Correlation_up = correlation_up / normalize
     Correlation_down = correlation_down / normalize
     Correlation_pair = correlation_pair / normalize
     Correlation_n = correlation_n / normalize
     Correlation_s = correlation_s / normalize
-    # D = d / normalize
-    # E[ind_optim] = energy/normalize
-    # print(normalize)
-    # print(np.sum(np.dot(np.array(e_list - E[ind_optim]) ** 2,weight_list) * (normalize / (normalize ** 2 - np.sum(np.array(weight_list)**2))))) 
     return Correlation_up, Correlation_down, Correlation_pair, Correlation_n, Correlation_s
 
 @timeit
@@ -452,20 +463,29 @@ def corr():
     plt.show()
 
 def optimize():
-    method = ["fs"]
+    method = ["fs","vmc"]
     if "fs" in method: 
-        v = -1      # initial variational parameter
-        epsilon = 0.12   # variational step length
+        v = 0      # initial variational parameter
+        epsilon = 0   # variational step length
         M_optim = 16    # num of variational steps
         loop = 100
-        E,V = fs(v,epsilon,M_optim,loop,U,N,L)
+        E,V = fs(v,epsilon,M_optim,loop,U,N,L,disorder)
+        print(E)
+        print(V)
+        print("E error = ", np.sqrt(np.var(E)))
+        print("E mean = ",np.mean(E))
     if "vmc" in method: 
-        v = 1     # initial variational parameter
-        epsilon = 0.12   # variational step length
-        M_optim = 16    # num of variational steps
-        Meq = 1000      # vmc step to reach near ground state
-        Mc = 100        # vmc step to accumulate observable
-        E,V = vmc(v,epsilon,M_optim,Meq,Mc,U,N,L)
+        for _ in range(1):
+            v = 0  # initial variational parameter
+            epsilon = 0   # variational step length
+            M_optim = 16    # num of variational steps
+            Meq = 1000      # vmc step to reach near ground state
+            Mc = 100        # vmc step to accumulate observable
+            E,V = vmc(v,epsilon,M_optim,Meq,Mc,U,N,L,disorder)
+            print(E)
+            print(V)
+            print("E error = ", np.sqrt(np.var(E)))
+            print("E mean = ",np.mean(E))
     if "sr" in method:
         v = np.array([4.665482 ,1.04390547 ,1.08708198])
         epsilon = 0.001   # variational step length
@@ -474,16 +494,12 @@ def optimize():
         Mc = 1000        # vmc step to accumulate observable
         E,V = vmc_sr(v,epsilon,M_optim,Meq,Mc,U,N,L)
 
-    #print(cosine(state1,state2))
-    print(E)
-    print(V)
-    print("E error = ", np.var(E))
-    print("E mean = ",np.mean(E))
     plt.figure()
     plt.plot(E, '+')
     plt.figure()
     plt.plot(V, '+')
-    plt.show()
+    #plt.show()
 
 if __name__ == "__main__":
-    corr()
+    H,impurity = hamiltonian(L)
+    optimize()
