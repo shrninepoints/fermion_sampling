@@ -4,25 +4,16 @@ from scipy.linalg import expm
 from State import *
 distance = State.distance2D
 from copy import deepcopy
+import fermion_sampling as fs
 import time
 
 L = 4       # system size (2D, L*L square lattice)
 N = 16      # num of electron
-U = 0       # take tunneling strength as a unit
+U = 4       # take tunneling strength as a unit
 disorder = 4
 sites = L**2
 
-def timeit(f):
-    def timed(*args, **kw):
-        ts = time.time()
-        result = f(*args, **kw)
-        te = time.time()
-        print('func:%r args:[%r, %r] took: %2.4f sec' % \
-          (f.__name__, args, kw, te-ts))
-        return result
-    return timed
-
-def hamiltonian(L,U = 0):
+def hamiltonian(L,disorder,U = 0):
     sites = L ** 2
     H1 = np.zeros((sites,sites))
     for i in range(sites-1):
@@ -34,9 +25,10 @@ def hamiltonian(L,U = 0):
     H1[sites-1, L-1] = -1
     H1[sites-1, sites-L] = -1
     H1 = H1 + H1.T
-    impurity = np.random.rand(sites)
-    H = np.kron(np.identity(2), H1) - disorder * np.diag(np.append(impurity,impurity))
-    return (H,impurity)
+    np.random.seed()
+    impurity = (np.random.rand(sites) - 0.5) * 2
+    H = np.kron(np.identity(2), H1) + disorder * np.diag(np.append(impurity,impurity))
+    return H
 
 def sampling(U,N,L):
     # dealing with matrix that changed a row / collum, return new det with O(n)
@@ -102,7 +94,7 @@ def sampling(U,N,L):
             prev_matrix_inv = matrixInvUpdate(choosen_matrix,prev_matrix_inv,i+1) # TODO: this can be optimized using detUpdate
     return np.array(x)
 
-@timeit
+@fs.timeit
 def fs(v,epsilon,M_optim,loop,U,N,L,disorder):
     E = np.zeros(M_optim)
     V = np.zeros(M_optim+1)
@@ -152,7 +144,7 @@ def fs(v,epsilon,M_optim,loop,U,N,L,disorder):
                 samples = samples - 1
         if samples / loop < 0.9: raise ValueError("Too many fails")
         D = d / normalize
-        E[ind_optim] = particle/normalize
+        E[ind_optim] = energy / normalize
         #print(np.sum(np.dot(np.array(e_list - E[ind_optim]) ** 2,weight_list) * (normalize / (normalize ** 2 - np.sum(np.array(weight_list)**2)))))
         
         E_mul_D = e_mul_d / normalize
@@ -162,7 +154,7 @@ def fs(v,epsilon,M_optim,loop,U,N,L,disorder):
         V[ind_optim+1] = v
     return E,V
 
-@timeit
+@fs.timeit
 def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L,disorder):
     interval = N
     Mtotal = Meq + Mc * interval
@@ -187,7 +179,7 @@ def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L,disorder):
             print(Mtotal,end="\r")
         '''
         W = np.dot(phi_0, np.linalg.inv(phi_0[state.getX()]))
-        mc = e = d = e_mul_d = 0
+        mc = energy = d = e_mul_d = 0
         particle = 0
         np.random.seed()
         # loop for VMC    
@@ -213,9 +205,9 @@ def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L,disorder):
             if _ >= Meq and (_ - Meq) % interval == 0:
                 mc += 1
                 d = d - state.getDoubleNum()
-                e = e + state.energy(v,U,phi_0) - disorder * (np.dot(state.getState()[0:sites],impurity) + np.dot(state.getState()[sites:],impurity))
-                e_list.append(state.energy(v,U,phi_0))
-                e_mul_d = e_mul_d - state.getDoubleNum() * state.energy(v,U,phi_0)
+                energy = energy + state.energy(v,U,phi_0) - disorder * (np.dot(state.getState()[0:sites],impurity) + np.dot(state.getState()[sites:],impurity))
+                #e_list.append(state.energy(v,U,phi_0))
+                #e_mul_d = e_mul_d - state.getDoubleNum() * state.energy(v,U,phi_0)
                 if 1 in state.getX(): particle = particle + 1
                 if 1 + sites in state.getX(): particle = particle + 1
        
@@ -228,13 +220,13 @@ def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L,disorder):
             for step in range(90):
                 ac_list.append(autocorrelation(step,e_list))
             #print(ac_list)
-            print("tau = ",abs(np.polyfit(np.log(np.abs(ac_list[0:10])), np.arange(10), 1)[0])) # corr length / (sites*2)
+            print("tau = ",abs(np.polyfit(np.log(np.abs(ac_list[0:20])), np.arange(20), 1)[0])) # corr length / (sites*2)
             print("integrated tau = ", np.sum(ac_list))        
-            #plt.figure(); plt.plot(ac_list); plt.show()   
-        correlation_length()
+            plt.figure(); plt.plot(ac_list); plt.show()   
+        #correlation_length()
         
         D = d / mc
-        E[ind_optim] = particle / mc
+        E[ind_optim] = energy / mc
         E_mul_D = e_mul_d / mc
         f = 2 * (E[ind_optim]*D - E_mul_D)  # calc gradient
         v = v + epsilon * f # update variational parameter
@@ -242,7 +234,7 @@ def vmc(v,epsilon,M_optim,Meq,Mc,U,N,L,disorder):
         V[ind_optim+1] = v
     return E,V
 
-@timeit
+@fs.timeit
 def vmc_sr(v,epsilon,M_optim,Meq,Mc,U,N,L):
 
     interval = sites * 2
@@ -253,7 +245,7 @@ def vmc_sr(v,epsilon,M_optim,Meq,Mc,U,N,L):
     V = np.zeros((M_optim+1,param_num))
     V[0] = v
 
-    H = hamiltonian(L)
+    H = hamiltonian(L,disorder)
     e, phi = np.linalg.eigh(H)
     phi_0 = phi[: , np.argsort(e)[:N]]
     N_down = np.sum(np.sum(np.abs(phi_0[:L]),0) == 0)
@@ -345,7 +337,7 @@ def vmc_sr(v,epsilon,M_optim,Meq,Mc,U,N,L):
         V[ind_optim+1] = v
     return E,V
 
-@timeit
+@fs.timeit
 def fs_corr(v,loop,U,N,L):
     sites = L**2
     H = hamiltonian(L)
@@ -383,7 +375,7 @@ def fs_corr(v,loop,U,N,L):
     Correlation_s = correlation_s / normalize
     return Correlation_up, Correlation_down, Correlation_pair, Correlation_n, Correlation_s
 
-@timeit
+@fs.timeit
 def vmc_corr(v,Meq,Mc,U,N,L):
     sites = L**2
     interval = sites * 2
@@ -465,7 +457,7 @@ def corr():
 def optimize():
     method = ["fs","vmc"]
     if "fs" in method: 
-        v = 0      # initial variational parameter
+        v = 0.6      # initial variational parameter
         epsilon = 0   # variational step length
         M_optim = 16    # num of variational steps
         loop = 100
@@ -473,19 +465,20 @@ def optimize():
         print(E)
         print(V)
         print("E error = ", np.sqrt(np.var(E)))
+        print("real error = ", np.sqrt(np.sum(np.array(E - theo_occupation)**2) / len(E)))
         print("E mean = ",np.mean(E))
     if "vmc" in method: 
-        for _ in range(1):
-            v = 0  # initial variational parameter
-            epsilon = 0   # variational step length
-            M_optim = 16    # num of variational steps
-            Meq = 1000      # vmc step to reach near ground state
-            Mc = 100        # vmc step to accumulate observable
-            E,V = vmc(v,epsilon,M_optim,Meq,Mc,U,N,L,disorder)
-            print(E)
-            print(V)
-            print("E error = ", np.sqrt(np.var(E)))
-            print("E mean = ",np.mean(E))
+        v = 0.6  # initial variational parameter
+        epsilon = 0  # variational step length
+        M_optim = 16    # num of variational steps
+        Meq = 2000      # vmc step to reach near ground state
+        Mc = 100        # vmc step to accumulate observable
+        E,V = vmc(v,epsilon,M_optim,Meq,Mc,U,N,L,disorder)
+        print(E)
+        print(V)
+        print("E error = ", np.sqrt(np.var(E)))
+        print("real error = ", np.sqrt(np.sum(np.array(E - theo_occupation)**2) / len(E)))
+        print("E mean = ",np.mean(E))
     if "sr" in method:
         v = np.array([4.665482 ,1.04390547 ,1.08708198])
         epsilon = 0.001   # variational step length
@@ -501,5 +494,14 @@ def optimize():
     #plt.show()
 
 if __name__ == "__main__":
-    H,impurity = hamiltonian(L)
+    H = hamiltonian(L,disorder)
+    np.savetxt('data/hamiltonian.txt', H, fmt='%.18e')
+    #H = np.loadtxt('data/hamiltonian.txt',dtype=float)
+    impurity = np.diag(H-hamiltonian(L,0)[0])[:sites]/disorder
+    '''
+    '''
+    e, phi = np.linalg.eigh(H)
+    phi_0 = phi[: , np.argsort(e)[:N]]
+    theo_occupation = np.sum(phi_0[1] ** 2) + np.sum(phi_0[1+sites] ** 2)
+    print(theo_occupation)
     optimize()
