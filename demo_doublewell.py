@@ -6,15 +6,15 @@ import numpy as np
 import time
 import matplotlib.pyplot as plt
 
-a = 12
-b = 48
-c = 4 # V = ax^4 - bx^2 - cx
+a = 2 ** 6
+b = 2 ** 8
+c = 11.3146340707317 # V = ax^4 - bx^2 - cx  #12,48 -> 5.093, 24,96 -> 6.978545, 96,384 -> 13.856471078 2**18,2**16->738.8916015625
 xrange = 2 # position takes value from [-xrange,xrange]
 L = 64
-N = 32
+N = 4
 interval = xrange / (L-1) * 2
 
-def hamiltonian(plot=False):
+def hamiltonian(a,b,c,plot=False):
     T = np.zeros((L,L))
     V = np.diag(np.array([a*(-xrange+i*interval)**4-b*(-xrange+i*interval)**2-c*(-xrange+i*interval) for i in range(L)]))
     if plot: plt.figure(); plt.plot(np.diag(V)); plt.show()
@@ -193,28 +193,49 @@ def mc(Meq,Mc):
         print("tau = ",abs(np.polyfit(np.log(np.abs(ac_list[0:20])), np.arange(20), 1)[0])) # corr length / (sites*2)
         print("integrated tau = ", np.sum(ac_list))        
         plt.figure(); plt.plot(ac_list); plt.show()   
-    #correlation_length()
+    correlation_length()
     #plt.figure(); plt.plot(position); plt.show()
     return diff
 
-       
+def search():
+    m = 100
+    n = 0
+    recursion = 0
+    while True:
+        recursion += 1
+        T,V = hamiltonian(a,b,(m+n)/2,plot=False)
+        H = T + V
+        e, phi = np.linalg.eigh(H)
+        phi_0 = phi[: , np.argsort(e)[:N]]
+        position = [np.sum(phi_0[i] ** 2) for i in range(L)]
+        diff = N - 2*np.sum(position[:L//2])
+        if diff < 0.5: n = (m+n)/2
+        elif diff > 1.5: m = (m+n)/2
+        else: break
+        if recursion > 1024: break
+    return (m+n)/2
+
+
 if __name__ == "__main__":
-    T,V = hamiltonian(plot=True)
+    T,V = hamiltonian(a,b,c,plot=False)
     H = T + V
     e, phi = np.linalg.eigh(H)
     phi_0 = phi[: , np.argsort(e)[:N]]
     position = [np.sum(phi_0[i] ** 2) for i in range(L)]
+    #plt.figure(); plt.plot(position); plt.show()
     diff = N - 2*np.sum(position[:L//2])
     print("theo diff = ", diff)
-
-    mc_list = []
-    fs_list = []
-    for i in range(8):
-        mc_list.append(mc(0,100))
-        fs_list.append(fs(100))
-    mc_error = np.sqrt(np.sum(np.array(mc_list - diff)**2) / len(mc_list))
-    fs_error = np.sqrt(np.sum(np.array(fs_list - diff)**2) / len(fs_list))
-    print(mc_list,mc_error)
-    print(fs_list,fs_error)
-
-    
+    s = 0
+    if s == 1: 
+        print(search())
+    else:
+        mc_list = []
+        fs_list = []
+        for i in range(8):
+            mc_list.append(mc(1000,1000))
+            fs_list.append(fs(1000))
+        mc_error = np.sqrt(np.sum(np.array(mc_list - diff)**2) / len(mc_list))
+        fs_error = np.sqrt(np.sum(np.array(fs_list - diff)**2) / len(fs_list))
+        print(mc_list,mc_error)
+        print(fs_list,fs_error)
+        
