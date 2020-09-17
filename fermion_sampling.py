@@ -5,7 +5,8 @@ import numpy as np
 from scipy.stats import unitary_group
 from scipy.linalg import expm
 import time
-#import matplotlib.pyplot as plt
+import demo_hubbard as dh
+import matplotlib.pyplot as plt
 
 def dpp(U,N,L):
     K = U
@@ -86,7 +87,12 @@ def sampling(U,N,L):
                     delta_v = U[j,v[0:i+1]] - U[j0,v[0:i+1]]
                     p[j] = np.square(np.float128(np.abs(detUpdate(delta_v,-1,first_matrix_inv,first_matrix_det,0))))
                     # use of higher accuracy is necessary, otherwise introduce divide by 0 for small first_matrix_det
+        print(x)
+    
         p = np.float64(p / sum(p))
+        plt.figure(); plt.plot(p); plt.show()
+        temp = U[:,v[i]] ** 2
+        plt.figure(); plt.plot(temp,color='r'); plt.show()
         x.append(np.random.choice(L,p = p))    # choose position wrt p 
         if i == 0:  # the choosen matrix, either the very first one or of new ranks, O(n^2)
             choosen_matrix = np.array([[U[x[0],v[0]]]])
@@ -220,16 +226,29 @@ def sample_state(loop,method,U,N,L):
     return count
 
 if __name__ == "__main__":
-    loop = 1000    # number of samples
-    N = 1         # num of particle
-    L = 8        # length of the system
+    loop = 1    # number of samples
+    N = 16         # num of particle
+    L = 1024        # length of the system
+
+    H1 = np.zeros((2*L,2*L))
+    for i in range(2*L-1):
+        H1[i, i+1] = -1
+    H1[L-1, 0] = -1
+    H1[2*L-1, L] = -1
+    H1[L-1, L] = 0
+    H = H1 + H1.T
+    e, phi = np.linalg.eig(H)
+    phi_0 = phi[: , np.argsort(e)[:N]]
+    print(phi_0)
+    print(np.sum(np.sort(e)[:N]))
+    U = phi_0 + np.random.rand(L*2,N) / 10 ** 12
+    '''
     U = unitary_group.rvs(L)
     U = U[0:N,:]
-
     print(U)
-    
+    '''
     #sample_position(loop,"sampling2",U,N,L)
-    sample_position(loop,"test",U,N,L)
+    sample_position(loop,"sampling",U.T,N,2*L)
     '''
     #count0 = np.array(sample_state(loop,"dpp",U,N,L))
     #count0 = count0[count0 != 0]    
