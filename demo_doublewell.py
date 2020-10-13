@@ -1,5 +1,6 @@
 '''
 1d double well potential
+spin-1/2 system with on-site interaction
 '''
 import os
 import sys
@@ -7,18 +8,23 @@ import numpy as np
 import time
 import matplotlib.pyplot as plt
 from multiprocessing import Pool
+from State1d import *
+from copy import deepcopy
+import slater_reconstruction_spin
 
 # 1, 2**8 -> 2.055419921875, 2,2**8 -> 1.96923828125
-b = 2 ** 8
-a = b / 2 ** 3
-c = 11.31463405 # V = ax^4 - bx^2 - cx  #12,48 -> 5.093, 24,96 -> 6.978545, 96,384 -> 13.856471078 2**16,2**18->738.8916015625 1.3366
+b = 2 ** 3
+a = b / 2 ** 2
+c = 1  # V = ax^4 - bx^2 - cx  #12,48 -> 5.093, 24,96 -> 6.978545, 96,384 -> 13.856471078 2**16,2**18->738.8916015625 1.3366
 xrange = 2 # position takes value from [-xrange,xrange]
-L = 32
-N = 16
+L = 8
+N = 8
 interval = xrange / (L-1) * 2
 s = 3
 p = True
-disorder = 5
+d = True
+disorder = 0
+v = 0
 
 def timeit(f):
     def timed(*args, **kw):
@@ -30,16 +36,23 @@ def timeit(f):
         return result
     return timed
 
-def hamiltonian(a,b,c,plot=False):
-    T = np.zeros((L,L))
-    V = np.diag(np.array([a*(-xrange+i*interval)**4-b*(-xrange+i*interval)**2-c*(-xrange+i*interval) for i in range(L)]))
-    if plot: plt.figure(); plt.plot(np.diag(V)); plt.show()
-    for i in range(L):
-        for j in range(L):
-            if i==j: T[i,j] = (np.pi/interval)**2 / 6
-            else: T[i,j] = (-1) ** (i-j) / ((i-j)**2 * interval ** 2)
+def hamiltonian(a,b,c,plot=False, discrete=False):
+    T = np.zeros((2*L,2*L))
+    V_diag = np.array([a*(-xrange+i*interval)**4-b*(-xrange+i*interval)**2-c*(-xrange+i*interval) for i in range(L)])
+    V = np.diag(np.append(V_diag, V_diag))
+    # print('c={}, V_diag:{}'.format(c, V_diag))
+    if plot: plt.figure(); plt.plot(V_diag); plt.show()
+    if discrete:
+        for i in range(2*L-1):
+            T[i, i+1] = -1
+        T[L-1, L] = 0
+        T = T + T.T
+    else:
+        for i in range(L):
+            for j in range(L):
+                if i==j: T[i,j] = T[i+L,j+L] = (np.pi/interval)**2 / 6
+                else: T[i,j] = T[i+L,j+L] = (-1) ** (i-j) / ((i-j)**2 * interval ** 2)
     return T,V
-
 
 def hamiltonian_anderson(disorder):
     H1 = np.zeros((L,L))
@@ -56,7 +69,7 @@ def h2diff(tv):
     H = tv[0] + tv[1]
     e, phi = np.linalg.eigh(H)
     phi_0 = phi[: , np.argsort(e)[:N]]
-    position = [np.sum(phi_0[i] ** 2) for i in range(L)]
+    position = [np.sum(phi_0[i] ** 2)+np.sum(phi_0[i+L] ** 2) for i in range(L)]
     diff = N - 2*np.sum(position[:L//2])
     return diff
 
@@ -66,9 +79,9 @@ def search(a,b):
     recursion = 0
     while True:
         recursion += 1
-        diff = h2diff(hamiltonian(a,b,(m+n)/2,plot=False))
+        diff = h2diff(hamiltonian(a,b,(m+n)/2,plot=False,discrete=d))
         if diff < 0.5: n = (m+n)/2
-        elif diff > 1.5: m = (m+n)/2
+        elif diff > 3.5: m = (m+n)/2
         else: break
         if recursion > 512: print("fail with ",a,b,"end with ",(m+n)/2); break
     return (m+n)/2
@@ -151,21 +164,28 @@ def corr_length(c):
                     prev_matrix_det = matrixDetUpdate(choosen_matrix,prev_matrix_det,prev_matrix_inv,i+1)
                     prev_matrix_inv = matrixInvUpdate(choosen_matrix,prev_matrix_inv,i+1) # TODO: this can be optimized using detUpdate
             return np.array(x)
-        diff = 0
+        diff = 0; normalize = 0
+        sites = L
         np.random.seed()
+        phi_1 = slater_reconstruction_spin.preprocess(phi_0.T,v,N,L)
+        phi_1 = phi_1.T
+        assert np.shape(phi_1) == np.shape(phi_0)
+        position = [np.sum(phi_1[i] ** 2)+np.sum(phi_1[i+L] ** 2) for i in range(L)]
+        plt.figure(); plt.plot(position); plt.show()
+        diff = N - 2*np.sum(position[:L//2])
+        print("phi1diff", diff)
+        mat = phi_1 + np.random.rand(L*2,N) / 10 ** 12
         for _ in range(loop):
-            state = sampling(phi_0,N,L)
-            diff += N - 2*sum(x < L/2 for x in state)
-        return diff/loop
+            sample = sampling(mat,N,2*sites)
+            sample.sort()
+            N_down = np.sum(np.sum(np.abs(phi_1[:L]),0) == 0)
+            state = State1d(sites,sample[:N-N_down],sample[N-N_down:]-sites)
+            weight = np.exp(-2*v * state.getDoubleNum())
+            normalize += weight
+            diff += (N - 2*sum(x < L/2 for x in sample) - 2*sum(L <= x < 3*L/2 for x in sample)) * weight
+        return diff/normalize
 
     def mc(Meq,Mc):
-        def randomHopState(x):
-            index_change = np.random.randint(N)
-            index_new = np.random.randint(L-N)
-            x[index_change] = np.delete(np.arange(L), x)[index_new]
-            K = x[index_change]
-            return (K,index_change)
-
         def correlation_length(e_list):
             def autocorrelation(step,e_list):
                 assert len(e_list[step:]) == len(e_list[0:len(e_list)-step])
@@ -183,25 +203,27 @@ def corr_length(c):
             #plt.figure(); plt.plot(ac_list); plt.show()   
             return tau
 
-        state = np.random.choice(L, N, replace=False)
-        W = np.dot(phi_0, np.linalg.inv(phi_0[state]))
+        sites = L
+        state = State1d(sites,np.random.choice(sites, np.int(N_up), replace=False),np.random.choice(sites, np.int(N_down), replace=False))    # initial state
+        W = np.dot(phi_0, np.linalg.inv(phi_0[state.getX()]))
         mc = e = diff = 0
         position = np.zeros(L)
         np.random.seed()
         Mtotal = Meq + Mc * N
         diff_list = []
-        pot_list = []
+        e_list = []
         for _ in range(Mtotal):
             # randomly choose a new configuration
-            state_new = state.copy()
-            K,l = randomHopState(state_new)
+            state_new = deepcopy(state)
+            K,l = state_new.randomHopState()
             detRatio = W[K,l] # Recept in Markov chain
-            r = np.square(np.abs(detRatio))
+            J_Ratio = np.exp(-v * (state_new.getDoubleNum() - state.getDoubleNum())) # update of Jastrow factor
+            r = np.square(np.abs(J_Ratio*detRatio))
             #print(r)
             if np.random.rand() < np.min([1, r]):
                 state = state_new
                 # update of determinant
-                W_Il = W[:, l].reshape(L,1) * np.ones_like(W)
+                W_Il = W[:, l].reshape(2*sites,1) * np.ones_like(W)
                 W_Kj = W[K] * np.ones_like(W)
                 W_Il_delta_lj = np.zeros_like(W)
                 W_Il_delta_lj[:, l] = W[:, l]
@@ -210,78 +232,60 @@ def corr_length(c):
             # extract the results
             if _ >= Meq and (_ - Meq) % N == 0:
                 mc += 1
-                #print(state)
-                position += np.array([1 if i in state else 0 for i in range(L)])
-                diff += N - 2*sum(x < L/2 for x in state)
-                diff_list.append(N - 2*sum(x < L/2 for x in state))
-                #m = np.array([1 if i in state else 0 for i in range(L)])
-                #potential = np.dot(m,np.diag(V))
-                #pot_list.append(potential)
+                diff += N - 2*sum(x < L/2 for x in state.getX()) - 2*sum(L<= x < 3*L/2 for x in state.getX())
+                diff_list.append(N - 2*sum(x < L/2 for x in state.getX()) - 2*sum(L<= x < 3*L/2 for x in state.getX()))
+
         diff = diff / mc
-        position = position/mc
-        tau = correlation_length(diff_list)
+        # tau = correlation_length(diff_list)
+        # tau = correlation_length(e_list)
         #tau_p = correlation_length(pot_list)
-        #plt.figure(); plt.plot(position); plt.show()
-        return tau
+        return diff
     
-    file = open('data/'+str(c)+'out.txt', 'w')
+    file = open('data/ndiff_fs/'+'%1.3f'%c+'.txt', 'w')
     sys.stdout = file
     print(a,b,c,xrange,L,N)
-    #T,V = hamiltonian(a,b,c,plot=False); H = T + V
-    H = hamiltonian_anderson(disorder)
+    print('interaction v = {}'.format(v))
+    T,V = hamiltonian(a,b,c,plot=False, discrete=d); H = T + V
+    U = 0
+    # H = hamiltonian_anderson(disorder)
     e, phi = np.linalg.eigh(H)
     phi_0 = phi[: , np.argsort(e)[:N]]
-    position = [np.sum(phi_0[i] ** 2) for i in range(L)]
-    #plt.figure(); plt.plot(position); plt.show()
+    N_down = np.sum(np.sum(np.abs(phi_0[:L]),0) == 0)
+    N_up = N - N_down
+    position = [np.sum(phi_0[i] ** 2)+np.sum(phi_0[i+L] ** 2) for i in range(L)]
+    plt.figure(); plt.plot(position); plt.show()
     diff = N - 2*np.sum(position[:L//2])
     print("theo diff = ", diff)
+    # e_theo = np.sum(np.sort(e)[:N])
+    # print("theo energy = ", e_theo)
     #print("theo pot = ",np.dot(position,np.diag(V)))
-    mc_list = []
-    for i in range(5):
-        mc_list.append(mc(10000,10000))
-        #fs_list.append(fs(100))
-    mc_list = [i for i in mc_list if i != 0]
-    mc_error = np.sqrt(np.sum(np.array(mc_list - np.sum(mc_list)/len(mc_list))**2) / len(mc_list))
-    #fs_error = np.sqrt(np.sum(np.array(fs_list - diff)**2) / len(fs_list))
-    print(mc_list,mc_error,np.sum(mc_list)/len(mc_list))
-    #print(fs_list,fs_error)
+    # mc_list = []
+    fs_list = []
+    for i in range(16):
+        # mc_list.append(mc(1000,1000))
+        fs_list.append(fs(100))
+    # mc_list = [i for i in mc_list if i != 0]
+    # mc_error = np.sqrt(np.sum(np.array(mc_list - np.sum(mc_list)/len(mc_list))**2) / len(mc_list))
+    fs_error = np.sqrt(np.sum(np.array(fs_list - diff)**2) / len(fs_list))
+    # print(mc_list,mc_error,np.sum(mc_list)/len(mc_list))
+    print(fs_list,fs_error,np.sum(fs_list) / len(fs_list))
     file.close()
-    return np.sum(mc_list)/len(mc_list)
+    # return np.sum(mc_list)/len(mc_list)
+    return np.sum(fs_list)/len(fs_list)
 
 if __name__ == "__main__":
     if s == 1:
         #searchAll(b)
-        T,V = hamiltonian(a,b,c,plot=p)
+        T,V = hamiltonian(a,b,c,plot=p, discrete=d)
         print(search(a,b))
-        print(h2diff(hamiltonian(a,b,c)))
+        print(h2diff(hamiltonian(a,b,c, discrete=d)))
     elif s == 0:
-        l = [60.66064 + i * 0.25 * 10 ** -5 for i in range(24)]
+        l = [1.71 + i * 4 * 10 ** -3 for i in range(8)]
+        # l = [0.319 + i * 2 * 10 ** -3 for i in range(16)]
         with Pool(8) as p:
-            tau_list = p.map(corr_length, [c])
+            tau_list = p.map(corr_length, l)
         for tau in tau_list:
             print(tau)
-    elif s ==3:
+    elif s == 3:
         print(disorder)
-        corr_length(0)
-    '''
-    a = 2 ** -6
-    b = 2 ** 3
-    c = 0.4449462890625 # V = ax^4 - bx^2 - cx  #12,48 -> 5.093, 24,96 -> 6.978545, 96,384 -> 13.856471078 2**16,2**18->738.8916015625 1.3366
-    xrange = 32 # position takes value from [-xrange,xrange]
-    L = 64
-    N = 4   
-    interval = xrange / (L-1) * 2
-    s = 2
-    T,V = hamiltonian(a,b,c,plot=True)        
-    H = T+V
-    e, phi = np.linalg.eigh(H)
-    phi_0 = phi[: , np.argsort(e)[:N]]
-    position = [np.sum(phi_0[i] ** 2) for i in range(L)]
-    diff = N - 2*np.sum(position[:L//2])
-    print("theo diff = ", diff)
-    e.sort(); print(e[0:N])
-    print(search(a,b))
-    for i in range(N):
-        plt.figure(); plt.plot(phi_0[:,i]);plt.show()
-    '''
-
+        corr_length(1.71)

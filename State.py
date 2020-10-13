@@ -1,10 +1,10 @@
 import numpy as np
 
 class State:
-    def __init__(self,*args): # initialize with (x_up,x_down) or x
-        self.sites = args[0]
-        self.up = args[1]
-        self.down = args[2]
+    def __init__(self,sites = 0,x_up = None,x_down = None): # initialize with (sites,x_up,x_down)
+        self.sites = int(sites)
+        self.up = np.array(x_up)
+        self.down = np.array(x_down)
     
     def getUpNum(self):
         return len(self.up)
@@ -27,6 +27,14 @@ class State:
     def getState(self):
         m = [1 if i in self.getX() else 0 for i in range(self.sites * 2)]
         return m
+    def getWeight(self,v):
+        return np.exp(-2*v * self.getDoubleNum())
+    def __eq__(self,s): # exact the same state
+        return (self.sites == s.sites) and (self.up == s.up) and (self.down == s.down)
+    def same(self,s): # physically the same state, but moved
+        return (self.sites == s.sites) and (len(self.up) == len(s.up)) and (len(self.down) == len(s.down))
+    def __hash__(self):
+        return hash((self.sites,tuple(self.up),tuple(self.down)))
 
     def onehop(self):
         def hop(x_in):
@@ -238,7 +246,6 @@ class State:
 
         correlation_pair = c_pair / psi_0_x
         return correlation_pair
-
 
     def correlation_ns(self,v,phi_0):
         psi_0_x = np.linalg.det(phi_0[self.getX()])

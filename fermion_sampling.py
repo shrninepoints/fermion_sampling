@@ -87,12 +87,10 @@ def sampling(U,N,L):
                     delta_v = U[j,v[0:i+1]] - U[j0,v[0:i+1]]
                     p[j] = np.square(np.float128(np.abs(detUpdate(delta_v,-1,first_matrix_inv,first_matrix_det,0))))
                     # use of higher accuracy is necessary, otherwise introduce divide by 0 for small first_matrix_det
-        print(x)
-    
         p = np.float64(p / sum(p))
-        plt.figure(); plt.plot(p); plt.show()
+        #plt.figure(); plt.plot(p); plt.show()
         temp = U[:,v[i]] ** 2
-        plt.figure(); plt.plot(temp,color='r'); plt.show()
+        #plt.figure(); plt.plot(temp,color='r'); plt.show()
         x.append(np.random.choice(L,p = p))    # choose position wrt p 
         if i == 0:  # the choosen matrix, either the very first one or of new ranks, O(n^2)
             choosen_matrix = np.array([[U[x[0],v[0]]]])

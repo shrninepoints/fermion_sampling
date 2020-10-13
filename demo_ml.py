@@ -11,7 +11,7 @@ model = gensim.models.doc2vec.Doc2Vec(vector_size=50, min_count=2, epochs=20) # 
 d = 10 # dimension of feature vector
 method = "sampling" # sampling or dpp
 article_length = 60 # first n lines of the article are taken into account, used only for testing
-sample_num = 100    # number of samples, the higher the better
+sample_num = 1000    # number of samples, the higher the better
 theta = np.array([0.00096383 ,-0.01216535 , 0.01574886 ,-0.00411098 ,-0.00392975, -0.00080255,0.01070928 , 0.00381164 , 0.01000864, -0.00190676])
 
 def timeit(f):
@@ -192,7 +192,7 @@ if __name__ == "__main__":
     vecTrain()
     ts_list = readMultipleData(VEC_PATH,1)
     text,_ = readRandomData("/Users/macbookpro/projects/FermionSampling/test_data/00000test.story")
-    print(selectionMBR(sample_num,text,0,200))
+    print(selectionMBR(sample_num,text,2,20))
     '''
     theta_init = theta
     print("new theta = ",thetaTrain(theta))
